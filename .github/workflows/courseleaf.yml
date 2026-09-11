@@ -1,0 +1,62 @@
+name: Courseleaf
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: courseleaf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-linux:
+    name: Core package (Linux, swift test)
+    runs-on: ubuntu-24.04
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite headers
+        run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev pkg-config
+      - name: Toolchain
+        run: swift --version && pkg-config --modversion sqlite3
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --parallel 2>&1 | tee test-output.log
+      - name: Summary
+        if: always()
+        run: grep -E "Executed .* tests" test-output.log | tail -1 >> "$GITHUB_STEP_SUMMARY" || true
+
+  app-ios-simulator:
+    name: iPad app (macOS, Xcode, simulator)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          ls /Applications | grep -i xcode || true
+          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $NEWEST"; sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+      - name: Simulators
+        run: xcrun simctl list devices available | grep -i ipad || true
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Core package builds with Xcode toolchain (macOS)
+        run: swift build 2>&1 | tail -3
+      - name: Build and test on iPad simulator
+        run: |
+          mkdir -p Build
+          Scripts/build-ios.sh
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-results
+          path: |
+            Build/CourseleafTests.xcresult
+            Build/xcodebuild-test.log
+          if-no-files-found: ignore

@@ -1,0 +1,111 @@
+# XcodeGen specification for the Courseleaf iPad app.
+# Generate with: cd App && xcodegen generate   (the .xcodeproj is not committed)
+name: Courseleaf
+options:
+  bundleIdPrefix: dev.courseleaf            # placeholder; final bundle ID is chosen at release (docs/RELEASE_CHECKLIST.md)
+  deploymentTarget:
+    iOS: "18.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+packages:
+  CourseleafCore:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "5.0"                     # Swift 5 language mode; strict concurrency warnings only
+    SWIFT_STRICT_CONCURRENCY: minimal
+    TARGETED_DEVICE_FAMILY: "2"              # iPad only at launch
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""                     # set by the owner before signing
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    GCC_TREAT_WARNINGS_AS_ERRORS: NO
+targets:
+  Courseleaf:
+    type: application
+    platform: iOS
+    supportedDestinations: [iPad]
+    sources:
+      - path: Courseleaf
+        excludes: ["**/*.md"]
+    dependencies:
+      - package: CourseleafCore
+        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Fixtures]
+    info:
+      path: Courseleaf/Info.plist
+      properties:
+        CFBundleDisplayName: Courseleaf
+        CFBundleName: Courseleaf
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: false
+        NSCameraUsageDescription: "Courseleaf uses the camera to scan paper pages into your notebook. Scans stay on this iPad."
+        NSPhotoLibraryUsageDescription: "Courseleaf can insert photos from your library into a page. Nothing is uploaded."
+        NSPhotoLibraryAddUsageDescription: "Courseleaf can save exported page images to your photo library."
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Courseleaf Archive
+            LSHandlerRank: Owner
+            LSItemContentTypes: [dev.courseleaf.archive]
+          - CFBundleTypeName: PDF
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+          - CFBundleTypeName: Image
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.png, public.jpeg]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: dev.courseleaf.archive
+            UTTypeDescription: Courseleaf Archive
+            UTTypeConformsTo: [public.data, public.archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [courseleaf]
+              public.mime-type: [application/x-courseleaf-archive]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.courseleaf.app
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    entitlements:
+      path: Courseleaf/Courseleaf.entitlements
+      properties: {}
+  CourseleafTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [CourseleafTests]
+    dependencies:
+      - target: Courseleaf
+      - package: CourseleafCore
+        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Fixtures]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.courseleaf.app.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Courseleaf.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Courseleaf"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  Courseleaf:
+    build:
+      targets:
+        Courseleaf: all
+        CourseleafTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [CourseleafTests]
+      gatherCoverageData: true
+    archive:
+      config: Release

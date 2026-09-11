@@ -1,0 +1,16 @@
+# SwiftPM
+.build/
+.build-*/
+.swiftpm/
+Package.resolved
+# Xcode (project is generated from project.yml by XcodeGen)
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcresult
+# Local artifacts
+/Build/
+/.artifacts/
+*.log
+.DS_Store
