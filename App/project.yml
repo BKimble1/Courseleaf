@@ -29,7 +29,7 @@ targets:
   Courseleaf:
     type: application
     platform: iOS
-    supportedDestinations: [iPad]
+    supportedDestinations: [iOS]
     sources:
       - path: Courseleaf
         excludes: ["**/*.md"]
