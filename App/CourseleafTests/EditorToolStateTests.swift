@@ -15,7 +15,7 @@ final class EditorToolStateTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        suiteName = "dev.courseleaf.tests.toolstate.\(UUID().uuidString)"
+        suiteName = "com.idlery.courseleaf.tests.toolstate.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
     }
 

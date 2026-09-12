@@ -19,7 +19,7 @@ struct EditorPasteboardPayload: Codable, Equatable {
 }
 
 enum EditorPasteboard {
-    static let typeIdentifier = "dev.courseleaf.clipboard"
+    static let typeIdentifier = "com.idlery.courseleaf.clipboard"
 
     static func write(_ payload: EditorPasteboardPayload, to pasteboard: UIPasteboard = .general) {
         guard let data = try? DocumentJSON.encoder().encode(payload) else { return }

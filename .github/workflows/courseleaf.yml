@@ -51,42 +51,12 @@ jobs:
         run: |
           mkdir -p Build
           Scripts/build-ios.sh
-      - name: Test summary
+      - name: Test verdict
         if: always()
         run: |
-          BUNDLE=Build/CourseleafTests.xcresult
-          [ -d "$BUNDLE" ] || { echo "no result bundle"; exit 0; }
-          # Xcode 26 exposes a stable JSON summary; fall back to the legacy API.
-          if xcrun xcresulttool get test-results summary --path "$BUNDLE" --format json > summary.json 2>/dev/null; then
-            set -o pipefail
-            python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-          import json
-          d = json.load(open("summary.json"))
-          total = d.get("totalTestCount", "?")
-          print("## iPad simulator tests")
-          print(f"- result: {d.get('result','?')}")
-          print(f"- total: {total}, passed: {d.get('passedTests','?')}, failed: {d.get('failedTests','?')}, "
-                f"skipped: {d.get('skippedTests','?')}, expected failures: {d.get('expectedFailures','?')}")
-          for dev in d.get("devices", []):
-              print(f"- device: {dev.get('deviceName','?')} ({dev.get('platform','?')} {dev.get('osVersion','?')})")
-          for f in d.get("testFailures", [])[:20]:
-              print(f"  - FAILED {f.get('testName','?')}: {f.get('failureText','')[:200]}")
-          # A run that executes nothing must not read as success. This guard exists
-          # because a green job once reported totalTestCount 0.
-          if not isinstance(total, int) or total == 0:
-              raise SystemExit("no tests executed on the simulator; a passing job with zero tests is not evidence")
-          PY
-          else
-            echo "xcresulttool summary unavailable" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "--- raw summary.json (first 1200 chars) ---"
-          head -c 1200 summary.json 2>/dev/null || echo "(none)"
-          echo
+          Scripts/check-test-results.sh Build/CourseleafTests.xcresult "$GITHUB_STEP_SUMMARY"
           echo "--- did xcodebuild actually run tests? ---"
-          grep -cE "Test Suite|Test Case|Testing started|testing started" Build/xcodebuild-test.log 2>/dev/null || echo 0
           grep -E "Test Suite '.*' (started|passed|failed)|Executed [0-9]+ test" Build/xcodebuild-test.log 2>/dev/null | head -10 || true
-          echo "--- test-bundle / scheme diagnostics ---"
-          grep -iE "CourseleafTests.xctest|Test session|no tests|nothing to test|skipping test" Build/xcodebuild-test.log 2>/dev/null | head -10 || true
 
       - name: Compile error summary
         if: failure()

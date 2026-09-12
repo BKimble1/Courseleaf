@@ -13,7 +13,7 @@ import Observation
 enum ProductIDs {
     /// Non-consumable unlock. The StoreKit test configuration in
     /// Resources/Courseleaf.storekit declares the same identifier.
-    static let unlock = "dev.courseleaf.unlock"
+    static let unlock = "com.idlery.courseleaf.unlock"
     static let all: [String] = [unlock]
 }
 

@@ -261,7 +261,7 @@ struct EditorToolState: Codable, Hashable, Sendable {
 
 /// Persists `EditorToolState` as JSON in a `UserDefaults` suite.
 final class EditorToolStateStore {
-    static let defaultKey = "dev.courseleaf.editor.toolState"
+    static let defaultKey = "com.idlery.courseleaf.editor.toolState"
     let defaults: UserDefaults
     let key: String
 

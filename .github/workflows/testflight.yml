@@ -1,0 +1,190 @@
+name: TestFlight
+
+# Builds a signed Release archive for a physical iPad and uploads it to
+# TestFlight for internal testing. Manual only: a release is a decision, not a
+# consequence of pushing. This workflow never submits the app for App Store
+# review — that is a separate, deliberate action in App Store Connect.
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: "CFBundleShortVersionString for this build"
+        required: true
+        default: "1.0.0"
+      dry_run:
+        description: "Build, sign and verify, but do not upload"
+        type: boolean
+        default: false
+
+concurrency:
+  group: courseleaf-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: Signed archive and TestFlight upload
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        # Every step fails on the first error and through every pipe, so a
+        # failing build or test cannot be masked by a later command in a pipeline.
+        shell: bash -euo pipefail {0}
+    env:
+      APP_BUNDLE_ID: com.idlery.courseleaf
+      APP_APPLE_ID: "6811381700"
+      TEAM_ID: "7GNFT94A9L"
+      TESTFLIGHT_GROUP: "Personal Testing"
+      MARKETING_VERSION: ${{ inputs.marketing_version }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight — required secrets
+        env:
+          KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+        run: |
+          missing=()
+          [ -n "${ASC_KEY_ID:-}" ] || missing+=(ASC_KEY_ID)
+          [ -n "${ASC_ISSUER_ID:-}" ] || missing+=(ASC_ISSUER_ID)
+          [ -n "${KEY_B64:-}" ] || missing+=(ASC_PRIVATE_KEY_BASE64)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "Missing repository secrets: ${missing[*]}"
+            echo "See docs/RELEASE_CHECKLIST.md for how to supply them."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      - name: Select newest Xcode
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Python environment for the App Store Connect API
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --upgrade pip
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "pyjwt[crypto]"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install the App Store Connect API key
+        env:
+          KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+        run: |
+          # The key lives outside the workspace so no artifact upload can pick
+          # it up, and it is never echoed. altool finds it by ID in this dir.
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$KEY_B64" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          head -1 "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" | grep -q "BEGIN PRIVATE KEY" \
+            || { echo "ASC_PRIVATE_KEY_BASE64 did not decode to a PEM private key"; exit 1; }
+          echo "ASC_PRIVATE_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+          echo "Key installed ($(wc -c < "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8") bytes)."
+
+      - name: Verify the App Store Connect record
+        run: |
+          # Confirms the existing record matches these identifiers. It never
+          # creates a record, so a mismatch stops the release here.
+          python3 Scripts/asc.py verify-app --bundle-id "$APP_BUNDLE_ID" --app-id "$APP_APPLE_ID" \
+            | tee "$RUNNER_TEMP/app.json"
+          {
+            echo "## App Store Connect record"
+            echo '```json'
+            cat "$RUNNER_TEMP/app.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Choose an unused build number
+        run: |
+          BUILD=$(python3 Scripts/asc.py next-build --app-id "$APP_APPLE_ID" --version "$MARKETING_VERSION")
+          echo "BUILD_NUMBER=$BUILD" >> "$GITHUB_ENV"
+          echo "Version $MARKETING_VERSION, build $BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Tests on an iPad simulator
+        run: |
+          mkdir -p Build
+          Scripts/build-ios.sh
+
+      - name: Test verdict
+        run: Scripts/check-test-results.sh Build/CourseleafTests.xcresult "$GITHUB_STEP_SUMMARY"
+
+      - name: Signed Release archive and IPA
+        run: Scripts/release-ios.sh
+
+      - name: Record what was built
+        if: always()
+        run: |
+          {
+            echo "## Archive"
+            echo '```'
+            /usr/libexec/PlistBuddy -c "Print :ApplicationProperties" Build/Courseleaf.xcarchive/Info.plist 2>/dev/null || echo "(no archive)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to TestFlight
+        if: ${{ !inputs.dry_run }}
+        run: Scripts/upload-testflight.sh Build/export/Courseleaf.ipa
+
+      - name: Wait for processing
+        if: ${{ !inputs.dry_run }}
+        run: |
+          # Upload acceptance is not a usable build. Poll until App Store
+          # Connect says the build is VALID, and fail if it never gets there.
+          BUILD_ID=$(python3 Scripts/asc.py wait-build --app-id "$APP_APPLE_ID" \
+            --version "$MARKETING_VERSION" --build "$BUILD_NUMBER" --timeout 2700 | tail -1)
+          echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+          echo "Build $MARKETING_VERSION ($BUILD_NUMBER) processed: $BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Add the build to the internal group
+        if: ${{ !inputs.dry_run }}
+        run: |
+          python3 Scripts/asc.py add-build --app-id "$APP_APPLE_ID" \
+            --name "$TESTFLIGHT_GROUP" --build-id "$BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Internal testers
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        run: |
+          # Reports who is on the group, then adds the account's user only when
+          # there is exactly one and it is therefore unambiguous. Ambiguity is a
+          # question for a human, not a guess: an invitation cannot be unsent.
+          python3 Scripts/asc.py testers --app-id "$APP_APPLE_ID" --name "$TESTFLIGHT_GROUP" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 Scripts/asc.py add-tester --app-id "$APP_APPLE_ID" --name "$TESTFLIGHT_GROUP" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Where to install it
+        if: ${{ !inputs.dry_run }}
+        run: |
+          {
+            echo "## Install on the iPad"
+            echo "1. App Store Connect → Apps → Courseleaf → TestFlight → iOS builds → $MARKETING_VERSION ($BUILD_NUMBER)"
+            echo "2. Confirm the build is in the **$TESTFLIGHT_GROUP** internal group."
+            echo "3. On the iPad, open TestFlight (App Store) and sign in with the Apple Account that is a tester."
+            echo "4. Accept the Courseleaf invitation, then Install."
+            echo
+            echo "This build was uploaded for internal testing only. It has not been submitted for App Store review."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          # Logs and test results only. The signing key is in $HOME, never the
+          # workspace, and the IPA is not published here.
+          path: |
+            Build/CourseleafTests.xcresult
+            Build/xcodebuild-test.log
+            Build/xcodebuild-archive.log
+            Build/xcodebuild-export.log
+          if-no-files-found: ignore

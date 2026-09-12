@@ -8,7 +8,7 @@ import Workspace
 /// `LibraryServicing.importFiles`.
 enum ImportSupport {
     /// The app's own archive type, declared in `App/project.yml` (`UTExportedTypeDeclarations`).
-    static let archiveType: UTType = UTType(exportedAs: "dev.courseleaf.archive", conformingTo: .data)
+    static let archiveType: UTType = UTType(exportedAs: "com.idlery.courseleaf.archive", conformingTo: .data)
     /// Types accepted by the Files picker and as drop payloads.
     static var importableTypes: [UTType] { [.pdf, .png, .jpeg, archiveType] }
     /// Identifiers checked on an `NSItemProvider`, most specific first.

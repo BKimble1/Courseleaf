@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store / TestFlight distribution. Xcode 15.3 renamed this value from
+	     "app-store"; the pipeline requires Xcode 16 or newer. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>7GNFT94A9L</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- The build number is chosen from App Store Connect before archiving; let
+	     Xcode rewrite it and that choice is silently discarded. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<!-- Ship the archive's own bitcode-free binary as built; no thinning. -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>
