@@ -1,9 +1,10 @@
 name: TestFlight
 
 # Builds a signed Release archive for a physical iPad and uploads it to
-# TestFlight for internal testing. Manual only: a release is a decision, not a
-# consequence of pushing. This workflow never submits the app for App Store
-# review — that is a separate, deliberate action in App Store Connect.
+# TestFlight for internal testing. A release is a deliberate manual dispatch or
+# creation of a narrowly named release/dry-run-* or release/upload-* branch.
+# Ordinary pushes cannot release. This workflow never submits the app for App
+# Store review — that remains a separate action in App Store Connect.
 
 on:
   workflow_dispatch:
@@ -16,6 +17,7 @@ on:
         description: "Build, sign and verify, but do not upload"
         type: boolean
         default: false
+  create:
 
 concurrency:
   group: courseleaf-testflight
@@ -24,6 +26,14 @@ concurrency:
 jobs:
   testflight:
     name: Signed archive and TestFlight upload
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'create' &&
+         github.event.ref_type == 'branch' &&
+         (startsWith(github.event.ref, 'release/dry-run-') ||
+          startsWith(github.event.ref, 'release/upload-')))
+      }}
     runs-on: macos-15
     timeout-minutes: 90
     defaults:
@@ -36,7 +46,8 @@ jobs:
       APP_APPLE_ID: "6811381700"
       TEAM_ID: "7GNFT94A9L"
       TESTFLIGHT_GROUP: "Personal Testing"
-      MARKETING_VERSION: ${{ inputs.marketing_version }}
+      MARKETING_VERSION: ${{ inputs.marketing_version || '1.0.0' }}
+      DRY_RUN: ${{ github.event_name == 'create' && startsWith(github.event.ref, 'release/dry-run-') || inputs.dry_run }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
 
@@ -131,11 +142,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload to TestFlight
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.DRY_RUN != 'true' }}
         run: Scripts/upload-testflight.sh Build/export/Courseleaf.ipa
 
       - name: Wait for processing
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.DRY_RUN != 'true' }}
         run: |
           # Upload acceptance is not a usable build. Poll until App Store
           # Connect says the build is VALID, and fail if it never gets there.
@@ -149,13 +160,13 @@ jobs:
           echo "Build $MARKETING_VERSION ($BUILD_NUMBER) processed: $BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Add the build to the internal group
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.DRY_RUN != 'true' }}
         run: |
           python3 Scripts/asc.py add-build --app-id "$APP_APPLE_ID" \
             --name "$TESTFLIGHT_GROUP" --build-id "$BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Internal testers
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.DRY_RUN != 'true' }}
         continue-on-error: true
         run: |
           # Reports who is on the group, then adds the account's user only when
@@ -167,7 +178,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Where to install it
-        if: ${{ !inputs.dry_run }}
+        if: ${{ env.DRY_RUN != 'true' }}
         run: |
           {
             echo "## Install on the iPad"
