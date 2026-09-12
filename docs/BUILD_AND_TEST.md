@@ -56,11 +56,44 @@ iPad app (macOS, Xcode 16 or newer, XcodeGen 2.40+):
 ```bash
 brew install xcodegen
 Scripts/build-ios.sh           # xcodegen generate; build; run CourseleafTests on the first available iPad simulator
+Scripts/check-test-results.sh Build/CourseleafTests.xcresult
 Scripts/archive-ios.sh         # xcodebuild archive with signing disabled (unsigned .xcarchive for inspection)
 ```
 
 `Scripts/build-ios.sh` accepts `DESTINATION='platform=iOS Simulator,name=iPad Pro 13-inch (M4)'`
 to pin a simulator; by default it picks the first available iPad.
+
+`Scripts/check-test-results.sh` turns an `.xcresult` bundle into a verdict and is
+what both workflows use, so "the tests passed" means the same thing everywhere:
+it fails on a missing or unreadable bundle, on **zero executed tests**, and on
+any failure. The zero-test case is explicit because a green job once reported
+`totalTestCount` 0 (`docs/VALIDATION.md`).
+
+Signed release (macOS, App Store Connect API key in the environment):
+
+```bash
+export ASC_KEY_ID=... ASC_ISSUER_ID=... ASC_PRIVATE_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_<ID>.p8
+python3 Scripts/asc.py verify-app --bundle-id com.idlery.courseleaf --app-id 6811381700
+BUILD=$(python3 Scripts/asc.py next-build --app-id 6811381700 --version 1.0.0)
+MARKETING_VERSION=1.0.0 BUILD_NUMBER=$BUILD Scripts/release-ios.sh
+Scripts/upload-testflight.sh Build/export/Courseleaf.ipa
+python3 Scripts/asc.py wait-build --app-id 6811381700 --version 1.0.0 --build $BUILD
+```
+
+`Scripts/release-ios.sh` archives for `generic/platform=iOS` — a device archive,
+never a simulator one — and calls `Scripts/inspect-archive.sh` and
+`Scripts/inspect-ipa.sh`. Those two are assertions, not printouts: they fail the
+build unless the bundle identifier, version, build number, `DTPlatformName`,
+device family, minimum OS, icon, permission strings, export-compliance flag,
+distribution certificate, signing team, `application-identifier`,
+`get-task-allow` and the embedded App Store profile are all what they should be.
+`Scripts/install-appicon.py` regenerates the app icon from
+`Design/app-icon-source.png`.
+
+In normal use none of this is run by hand: `.github/workflows/testflight.yml`
+does it on a macOS runner, which is the only machine in this project with an
+Apple SDK. See `docs/RELEASE_CHECKLIST.md` for the three repository secrets it
+needs.
 
 ## Continuous integration
 
@@ -75,6 +108,14 @@ to pin a simulator; by default it picks the first available iPad.
    `error:` lines from the raw `xcodebuild` log and repeats it in the job
    summary, because `xcbeautify` drops file and line information.
 
+`.github/workflows/testflight.yml` runs only on manual dispatch and is the
+release path: it verifies the App Store Connect record, picks an unused build
+number, runs the simulator tests, produces and asserts a signed device archive
+and IPA, uploads, waits for processing to reach `VALID`, and adds the build to
+the internal test group. A `dry_run` input stops it before the upload.
+
 A green `core-linux` job means the portable logic passed. A green
 `app-ios-simulator` job means the app compiled with the Apple SDK and the
-simulator tests passed. Neither is device evidence.
+simulator tests passed. Neither is device evidence, and neither is an upload:
+`altool` accepting a build says the bytes arrived, not that the build processed
+or that it runs on an iPad.

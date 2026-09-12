@@ -62,9 +62,18 @@ check_app_bundle() {  # check_app_bundle <App.app> <version> <build> <teamid>
   local primary; primary=$(plist_get "$info" "CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconName")
   [ -n "$primary" ] || primary=$(plist_get "$info" "CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName")
   expect_eq "CFBundleIconName" "$primary" "AppIcon"
-  local pngs; pngs=$(find "$app" -maxdepth 1 -name 'AppIcon*.png' | wc -l | tr -d ' ')
-  if [ "$pngs" -gt 0 ]; then note "AppIcon*.png in bundle" "$pngs"; else fail "no rendered AppIcon PNGs in the bundle"; fi
   [ -f "$app/Assets.car" ] && note "Assets.car" "present" || fail "no compiled asset catalog"
+  # Xcode writes the rendered icons either as loose PNGs or as CFBundleIconFiles
+  # (or both, depending on version). Require at least one, so a bundle that
+  # compiled an empty icon set is caught here rather than by App Store Connect.
+  local pngs; pngs=$(find "$app" -maxdepth 1 -name 'AppIcon*.png' | wc -l | tr -d ' ')
+  local files; files=$(plist_get "$info" "CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconFiles")
+  [ -n "$files" ] || files=$(plist_get "$info" "CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconFiles")
+  if [ "${pngs:-0}" -gt 0 ] || [ -n "$files" ]; then
+    note "rendered icons" "${pngs} PNG file(s), CFBundleIconFiles $([ -n "$files" ] && echo present || echo absent)"
+  else
+    fail "the app icon did not compile into the bundle"
+  fi
 
   echo "-- code signature"
   if codesign -dv "$app" >/dev/null 2>&1; then

@@ -67,7 +67,7 @@ jobs:
             echo "================ iOS BUILD ERRORS ================"
             grep -E "error:" Build/xcodebuild-test.log 2>/dev/null \
               | sed 's/\x1b\[[0-9;]*m//g' \
-              | sed 's#/Users/runner/work/QuickWrite/QuickWrite/##' \
+              | sed 's#/Users/runner/work/[^/]*/[^/]*/##' \
               | sort -u | head -60 || echo "(no error lines matched)"
             echo "================================================="
           } | tee -a "$GITHUB_STEP_SUMMARY"
