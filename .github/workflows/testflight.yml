@@ -20,11 +20,15 @@ on:
   create:
 
 concurrency:
-  # Releases run one at a time. The group was renamed once because a run whose
-  # macOS runner died was left in_progress by GitHub for hours — a cancel was
-  # accepted and never applied — and a stuck run holds its group forever, which
-  # queues every later release behind a job that will never finish.
-  group: courseleaf-release
+  # Releases run one at a time.
+  #
+  # The suffix is deliberate. Twice now GitHub has left a run whose macOS runner
+  # died reporting in_progress for hours, accepting a cancellation without ever
+  # applying it. A stuck run holds its concurrency group forever, so every later
+  # release sits at "pending" behind a job that will never finish, and the only
+  # way past it is a group that the zombie does not hold. Bump the number when
+  # that happens again; it costs nothing and still serialises real releases.
+  group: courseleaf-release-2
   cancel-in-progress: false
 
 jobs:
