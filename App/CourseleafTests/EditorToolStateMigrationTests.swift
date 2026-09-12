@@ -13,36 +13,62 @@ import Editing
 /// missing key, this fails instead of silently resetting a library's pens.
 final class EditorToolStateMigrationTests: XCTestCase {
 
-    /// Exactly what version 1 stored, with values a student would recognise as
-    /// theirs: a 3.5pt red pen, a wide mint highlighter, a stroke eraser.
-    private let shippedVersionOneJSON = """
-    {
-      "tool" : { "ink" : { "_0" : "pen" } },
-      "inkPresets" : {
-        "pen" : { "width" : 3.5, "color" : { "red" : 0.81, "green" : 0.19, "blue" : 0.17, "alpha" : 1 } },
-        "pencil" : { "width" : 7, "color" : { "red" : 0.22, "green" : 0.22, "blue" : 0.23, "alpha" : 1 } },
-        "highlighter" : { "width" : 32, "color" : { "red" : 0.48, "green" : 0.96, "blue" : 0.47, "alpha" : 1 } }
-      },
-      "eraserMode" : "wholeStroke",
-      "eraserWidth" : 40,
-      "lassoMode" : "rectangle",
-      "selectionFilterRawValue" : 3,
-      "lastShapeKind" : "ellipse",
-      "shapeStrokeColor" : { "red" : 0, "green" : 0, "blue" : 0, "alpha" : 1 },
-      "shapeStrokeWidth" : 4,
-      "textStyle" : {
-        "fontSize" : 22, "weight" : "semibold", "design" : "serif", "alignment" : "center",
-        "color" : { "red" : 0, "green" : 0, "blue" : 0, "alpha" : 1 }
-      },
-      "tapeColor" : { "red" : 0.95, "green" : 0.79, "blue" : 0.30, "alpha" : 1 },
-      "recentColors" : [ { "red" : 0.81, "green" : 0.19, "blue" : 0.17, "alpha" : 1 } ],
-      "lastInkTool" : "pen"
+    /// A stored value in exactly the shape version 1 wrote, with values a
+    /// student would recognise as theirs: a 3.5pt red pen, a wide mint
+    /// highlighter, a stroke eraser.
+    ///
+    /// Each part is encoded with the same encoder version 1 used, rather than
+    /// hand-written as JSON — a literal would be this test's idea of the stored
+    /// shape, and the whole point is to decode the shape that was really there.
+    /// What is hand-controlled is what version 1 did *not* write: there is no
+    /// `favorites`, no `activeFavoriteID` and no `schemaVersion` key, and that
+    /// absence is the migration this has to survive.
+    private func shippedVersionOneData() throws -> Data {
+        let encoder = DocumentJSON.encoder()
+        func json<T: Encodable>(_ value: T) throws -> Any {
+            try JSONSerialization.jsonObject(with: encoder.encode(value))
+        }
+        let presets: [InkToolKind: InkToolPreset] = [
+            .pen: InkToolPreset(width: 3.5, color: try XCTUnwrap(RGBAColor(hex: "#D0312D"))),
+            .pencil: InkToolPreset(width: 7, color: try XCTUnwrap(RGBAColor(hex: "#3A3A3C"))),
+            .highlighter: InkToolPreset(width: 32, color: try XCTUnwrap(RGBAColor(hex: "#7CF57A"))),
+        ]
+        var style = TextStyleDefaults()
+        style.fontSize = 22
+        style.weight = .semibold
+        style.design = .serif
+        style.alignment = .center
+
+        let object: [String: Any] = [
+            "tool": try json(EditorTool.ink(.pen)),
+            "inkPresets": try json(presets),
+            "eraserMode": EraserMode.wholeStroke.rawValue,
+            "eraserWidth": 40.0,
+            "lassoMode": LassoMode.rectangle.rawValue,
+            "selectionFilterRawValue": 3,
+            "lastShapeKind": ShapeKind.ellipse.rawValue,
+            "shapeStrokeColor": try json(RGBAColor.black),
+            "shapeStrokeWidth": 4.0,
+            "textStyle": try json(style),
+            "tapeColor": try json(TapeContent().color),
+            "recentColors": try json([try XCTUnwrap(RGBAColor(hex: "#D0312D"))]),
+            "lastInkTool": InkToolKind.pen.rawValue,
+        ]
+        return try JSONSerialization.data(withJSONObject: object)
     }
-    """
 
     private func decodeShippedVersionOne() throws -> EditorToolState {
-        let data = Data(shippedVersionOneJSON.utf8)
-        return try DocumentJSON.decoder().decode(EditorToolState.self, from: data)
+        try DocumentJSON.decoder().decode(EditorToolState.self, from: try shippedVersionOneData())
+    }
+
+    func testTheFixtureReallyIsAVersionOneValue() throws {
+        // If this ever stops being true the migration test below is testing
+        // nothing, so it is asserted rather than assumed.
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: try shippedVersionOneData()) as? [String: Any])
+        XCTAssertNil(object["favorites"], "version 1 had no favourites")
+        XCTAssertNil(object["activeFavoriteID"])
+        XCTAssertNil(object["schemaVersion"], "version 1 did not record a version")
+        XCTAssertNotNil(object["inkPresets"], "and it did have one preset per ink type")
     }
 
     // MARK: Migration
