@@ -366,10 +366,13 @@ final class AppFlowTests: XCTestCase {
         model.showsReviewed = true
         let reviewed = try XCTUnwrap(model.visibleEntries.first { $0.item.id == physicsItem.id })
         XCTAssertEqual(reviewed.item.state, .reviewed)
-        // The whole session is in the item's history, in order: it was added,
-        // its answer was revealed, then it was marked reviewed.
-        XCTAssertEqual(reviewed.item.history.map(\.action), [.added, .revealed, .markedReviewed])
         XCTAssertNotNil(reviewed.item.lastReviewedAt)
+        // History is deliberately not catalogued — the queue is an index, and a
+        // growing event list does not belong in one — so the document is the
+        // authoritative record: added, answer revealed, then marked reviewed.
+        let kinematicsSession = try await environment.session(for: kinematics)
+        let stored = try XCTUnwrap(kinematicsSession.editor.document.reviewItems.first { $0.id == physicsItem.id })
+        XCTAssertEqual(stored.history.map(\.action), [.added, .revealed, .markedReviewed])
 
         await model.reopen(reviewed)
         model.showsReviewed = false
