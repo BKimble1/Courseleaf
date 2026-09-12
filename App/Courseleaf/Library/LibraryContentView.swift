@@ -66,6 +66,40 @@ struct LibraryContentView: View {
                     env.present(error, title: "Those files could not be opened")
                 }
             }
+            // Files handed to the app from outside it — "Open in Courseleaf",
+            // the share sheet — arrive through the router and take the same
+            // route as a picked file: the same destination question, the same
+            // staging, the same migration note.
+            .onChange(of: env.router.pendingImportURLs) { _, urls in
+                guard !urls.isEmpty else { return }
+                acceptIncoming(env.router.takePendingImportURLs())
+            }
+            .onAppear {
+                if !env.router.pendingImportURLs.isEmpty {
+                    acceptIncoming(env.router.takePendingImportURLs())
+                }
+            }
+            // Dropping a PDF, an image or a Courseleaf archive onto the library.
+            // The copy is taken here, synchronously, because a dropped URL is
+            // only guaranteed to exist for the length of this call.
+            .dropDestination(for: URL.self) { urls, _ in
+                // `.auto` means neither the extension nor the first kilobyte
+                // identified the file, so there is nothing to import and the
+                // drop is refused rather than staged and then complained about.
+                let importable = urls.filter { ImportSupport.detectKind(of: $0) != .auto }
+                guard !importable.isEmpty else { return false }
+                do {
+                    let staging = try SecurityScopedFileAccess.makeStagingDirectory()
+                    let staged = try importable.map {
+                        try SecurityScopedFileAccess.stageCopy(of: $0, into: staging)
+                    }
+                    acceptIncoming(staged)
+                    return true
+                } catch {
+                    env.present(error, title: "That file could not be read")
+                    return false
+                }
+            }
             .alert("Rename Notebook", isPresented: Binding(get: { renameTarget != nil },
                                                            set: { if !$0 { renameTarget = nil } })) {
                 TextField("Title", text: $renameText)
@@ -334,6 +368,14 @@ struct LibraryContentView: View {
         await reload()
         guard let id = await model.createQuickNote(template: env.settings.defaultTemplate) else { return }
         env.router.openNotebook(id)
+    }
+
+    /// Shows the destination question for files that arrived from outside the
+    /// app, unless one is already being answered.
+    private func acceptIncoming(_ urls: [URL]) {
+        guard !urls.isEmpty, !isShowingImportDestination else { return }
+        pickedURLs = urls
+        isShowingImportDestination = true
     }
 
     private func runImport(destination: ImportDestination) async {

@@ -85,6 +85,29 @@ final class AppRouter {
 
     func requestQuickCapture() { quickCaptureRequests &+= 1 }
 
+    /// Files handed to the app from outside it: "Open in Courseleaf", the share
+    /// sheet, or a drop onto the library. The library screen picks these up and
+    /// runs the same import flow the file picker uses, so an imported file gets
+    /// the same destination question and the same migration note.
+    private(set) var pendingImportURLs: [URL] = []
+
+    func requestImport(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        // Imports land in the library, so leave whatever is open and show it.
+        closeNotebook()
+        if case .review = sidebar { sidebar = .folder(nil) }
+        if case .trash = sidebar { sidebar = .folder(nil) }
+        pendingImportURLs = urls
+    }
+
+    /// The library screen takes the files once, so a second appearance does not
+    /// re-import them.
+    func takePendingImportURLs() -> [URL] {
+        let urls = pendingImportURLs
+        pendingImportURLs = []
+        return urls
+    }
+
     /// Opens a notebook in the detail column, replacing any notebook already shown.
     func openNotebook(_ documentID: DocumentID, pageIndex: Int? = nil, highlight: PageRect? = nil) {
         let target = NotebookTarget(documentID: documentID, pageIndex: pageIndex, highlight: highlight)

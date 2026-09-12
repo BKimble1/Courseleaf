@@ -19,6 +19,12 @@ struct CourseleafApp: App {
                     await appEnvironment.prepare()
                     await appEnvironment.openUITestNotebookIfNeeded()
                 }
+                // "Open in Courseleaf" from Files, Mail or a share sheet. The
+                // document types are declared in App/project.yml; until now
+                // nothing in the app answered when the system used them.
+                .onOpenURL { url in
+                    appEnvironment.router.requestImport([url])
+                }
         }
         .commands { shortcuts }
         .onChange(of: scenePhase) { _, phase in
