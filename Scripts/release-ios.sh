@@ -35,10 +35,10 @@ XCODE_MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
 SDK=$(xcodebuild -showsdks | sed -n 's/.*iphoneos\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -1)
 SDK_MAJOR=${SDK%%.*}
 echo "Xcode major $XCODE_MAJOR, newest iOS SDK $SDK"
-# App Store Connect rejects uploads built with an SDK older than iOS 18
-# (required since April 2025). Fail here rather than after a long archive.
-[ "${XCODE_MAJOR:-0}" -ge 16 ] || { echo "ERROR: Xcode 16 or newer is required to upload"; exit 2; }
-[ "${SDK_MAJOR:-0}" -ge 18 ] || { echo "ERROR: iOS 18 SDK or newer is required to upload (found $SDK)"; exit 2; }
+# App Store Connect requires Xcode 26 and the iOS 26 SDK for uploads made
+# after April 28, 2026. Fail here rather than after a long archive.
+[ "${XCODE_MAJOR:-0}" -ge 26 ] || { echo "ERROR: Xcode 26 or newer is required to upload"; exit 2; }
+[ "${SDK_MAJOR:-0}" -ge 26 ] || { echo "ERROR: iOS 26 SDK or newer is required to upload (found $SDK)"; exit 2; }
 
 command -v xcodegen >/dev/null || { echo "xcodegen not found: brew install xcodegen"; exit 2; }
 cd "$ROOT/App"
@@ -56,6 +56,7 @@ xcodebuild archive \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
+  CODE_SIGN_IDENTITY="Apple Distribution" \
   MARKETING_VERSION="$MARKETING_VERSION" \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$BUILD/xcodebuild-archive.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
