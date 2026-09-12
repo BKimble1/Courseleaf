@@ -201,8 +201,11 @@ struct EditorToolState: Codable, Hashable, Sendable {
 
     mutating func setPreset(_ preset: InkToolPreset, for kind: InkToolKind) {
         var p = preset
-        let range = PKInkingTool.validWidthRange(forInkType: kind.pencilKitInkType)
-        p.width = Double(min(max(CGFloat(p.width), range.lowerBound), range.upperBound))
+        // PencilKit exposes the bounds as two calls; there is no validWidthRange.
+        let inkType = kind.pencilKitInkType
+        let minimum = PKInkingTool.minimumWidth(forInkType: inkType)
+        let maximum = PKInkingTool.maximumWidth(forInkType: inkType)
+        p.width = Double(min(max(CGFloat(p.width), minimum), maximum))
         inkPresets[kind] = p
         noteColor(p.color)
     }

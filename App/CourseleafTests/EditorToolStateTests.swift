@@ -88,10 +88,11 @@ final class EditorToolStateTests: XCTestCase {
     func testPresetWidthIsClampedToThePencilKitRange() {
         var state = EditorToolState()
         state.setPreset(InkToolPreset(width: 10_000, color: .black), for: .pen)
-        let range = PKInkingTool.validWidthRange(forInkType: .pen)
-        XCTAssertEqual(state.preset(for: .pen).width, Double(range.upperBound), accuracy: 0.0001)
+        let minimum = PKInkingTool.minimumWidth(forInkType: .pen)
+        let maximum = PKInkingTool.maximumWidth(forInkType: .pen)
+        XCTAssertEqual(state.preset(for: .pen).width, Double(maximum), accuracy: 0.0001)
         state.setPreset(InkToolPreset(width: 0, color: .black), for: .pen)
-        XCTAssertEqual(state.preset(for: .pen).width, Double(range.lowerBound), accuracy: 0.0001)
+        XCTAssertEqual(state.preset(for: .pen).width, Double(minimum), accuracy: 0.0001)
     }
 
     func testRecentColorsAreMostRecentFirstAndBounded() {

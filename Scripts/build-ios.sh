@@ -23,13 +23,14 @@ fi
 echo "Destination: $DESTINATION"
 RESULT="${RESULT_BUNDLE:-$PWD/../Build/CourseleafTests.xcresult}"
 rm -rf "$RESULT"
+set +e
 set -o pipefail
 xcodebuild test \
   -project Courseleaf.xcodeproj -scheme Courseleaf \
   -destination "$DESTINATION" \
   -resultBundlePath "$RESULT" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
-  ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$PWD/../Build/xcodebuild-test.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
+  ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$PWD/../Build/xcodebuild-test.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat) || true
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
   echo "----- compile errors (from the raw log) -----"
