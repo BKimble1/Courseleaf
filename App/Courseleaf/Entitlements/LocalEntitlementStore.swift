@@ -22,9 +22,11 @@ final class LocalEntitlementStore: EntitlementStore {
     private(set) var restoreCallCount = 0
     private let broadcaster = EntitlementBroadcaster()
 
-    init(isUnlocked: Bool = false, products: [EntitlementProduct] = [LocalEntitlementStore.sampleProduct]) {
+    // `sampleProduct` is main-actor isolated, so it cannot be a default argument
+    // (an error in the Swift 6 language mode). nil means "use the sample".
+    init(isUnlocked: Bool = false, products: [EntitlementProduct]? = nil) {
         self.isUnlocked = isUnlocked
-        self.products = products
+        self.products = products ?? [LocalEntitlementStore.sampleProduct]
     }
 
     static let sampleProduct = EntitlementProduct(

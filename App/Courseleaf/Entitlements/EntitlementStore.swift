@@ -19,7 +19,11 @@ enum ProductIDs {
 
 /// Features that could be gated behind the unlock. Empty at launch on purpose:
 /// nothing is gated until a product and a gated set are configured before launch.
-enum PremiumFeature: String, CaseIterable, Hashable, Sendable {}
+enum PremiumFeature: Hashable, Sendable {
+    // No cases at launch. A raw type cannot be declared on a caseless enum, so
+    // add `: String, CaseIterable` together with the first case when a gated
+    // set is configured before launch.
+}
 
 /// Decides whether a feature is usable given the entitlement state.
 struct FeatureGate: Sendable {
