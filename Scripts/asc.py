@@ -16,6 +16,8 @@ Subcommands (all print a single line or a small JSON object):
     add-build       add a processed build to an internal group
     testers         list the internal testers of a group and the account's users
     add-tester      add one App Store Connect user to an internal group
+    audit-signing   read-only inventory of certificates, identifiers, profiles
+                    and devices, for diagnosing release signing
 
 Credentials come from the environment:
     ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH
@@ -265,6 +267,72 @@ def cmd_add_tester(args) -> int:
     return 0
 
 
+def safe(fn):
+    """Run one read-only probe, returning its error instead of aborting.
+
+    An audit that dies on the first 403 hides the very fact it was run to
+    find out: which parts of Certificates, Identifiers & Profiles this API
+    key can actually see.
+    """
+    try:
+        return fn()
+    except SystemExit as err:
+        return {"error": str(err)}
+
+
+def cmd_audit_signing(args) -> int:
+    """Read-only inventory of the team's code-signing assets.
+
+    Prints identifiers and metadata only: never certificateContent, never
+    profileContent, never a device UDID. It creates nothing, changes nothing
+    and revokes nothing, so it is safe to run against a live team.
+    """
+    report: dict = {}
+
+    report["certificates"] = safe(lambda: [{
+        "id": c["id"],
+        "certificateType": c["attributes"].get("certificateType"),
+        "displayName": c["attributes"].get("displayName"),
+        "expirationDate": c["attributes"].get("expirationDate"),
+    } for c in paged("/v1/certificates", {})])
+
+    def devices():
+        found = paged("/v1/devices", {})
+        by_status: dict[str, int] = {}
+        for d in found:
+            status = d["attributes"].get("status") or "?"
+            by_status[status] = by_status.get(status, 0) + 1
+        # Count only: a UDID identifies someone's hardware and the audit has
+        # no use for it.
+        return {"total": len(found), "byStatus": by_status}
+    report["devices"] = safe(devices)
+
+    report["bundleIds"] = safe(lambda: [{
+        "id": b["id"],
+        "identifier": b["attributes"].get("identifier"),
+        "name": b["attributes"].get("name"),
+        "platform": b["attributes"].get("platform"),
+    } for b in paged("/v1/bundleIds", {"filter[identifier]": args.bundle_id})])
+
+    def profiles():
+        out = []
+        for p in paged("/v1/profiles", {}):
+            entry = {
+                "id": p["id"],
+                "name": p["attributes"].get("name"),
+                "profileType": p["attributes"].get("profileType"),
+                "profileState": p["attributes"].get("profileState"),
+                "expirationDate": p["attributes"].get("expirationDate"),
+            }
+            entry["deviceCount"] = safe(lambda pid=p["id"]: len(paged(f"/v1/profiles/{pid}/devices", {})))
+            out.append(entry)
+        return out
+    report["profiles"] = safe(profiles)
+
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -297,6 +365,9 @@ def main() -> int:
     s = sub.add_parser("add-tester"); s.add_argument("--app-id", required=True)
     s.add_argument("--name", required=True); s.add_argument("--email")
     s.set_defaults(func=cmd_add_tester)
+
+    s = sub.add_parser("audit-signing"); s.add_argument("--bundle-id", required=True)
+    s.set_defaults(func=cmd_audit_signing)
 
     args = p.parse_args()
     return args.func(args)
