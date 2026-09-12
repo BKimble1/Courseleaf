@@ -355,7 +355,10 @@ final class AppFlowTests: XCTestCase {
         model.showsReviewed = true
         let reviewed = try XCTUnwrap(model.visibleEntries.first { $0.item.id == physicsItem.id })
         XCTAssertEqual(reviewed.item.state, .reviewed)
-        XCTAssertEqual(reviewed.item.history.map(\.action), [.added, .markedReviewed])
+        // The whole session is in the item's history, in order: it was added,
+        // its answer was revealed, then it was marked reviewed.
+        XCTAssertEqual(reviewed.item.history.map(\.action), [.added, .revealed, .markedReviewed])
+        XCTAssertNotNil(reviewed.item.lastReviewedAt)
 
         await model.reopen(reviewed)
         model.showsReviewed = false
