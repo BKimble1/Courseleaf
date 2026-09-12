@@ -29,4 +29,10 @@ xcodebuild test \
   -destination "$DESTINATION" \
   -resultBundlePath "$RESULT" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
-  ${XCODEBUILD_EXTRA:-} | tee "$PWD/../Build/xcodebuild-test.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
+  ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$PWD/../Build/xcodebuild-test.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
+status=${PIPESTATUS[0]}
+if [ "$status" -ne 0 ]; then
+  echo "----- compile errors (from the raw log) -----"
+  grep -E "error:" "$PWD/../Build/xcodebuild-test.log" | sed 's/\x1b\[[0-9;]*m//g' | sort -u | head -60 || true
+fi
+exit "$status"
