@@ -1,0 +1,80 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 10 0 R /PageMode /UseOutlines >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 229 >>
+stream
+BT /F1 18 Tf 72 720 Td (Chapter 1: Kinematics) Tj ET
+BT /F1 11 Tf 72 690 Td (Problem 1. A body moves along a straight line.) Tj ET
+BT /F1 11 Tf 72 674 Td (Find the displacement after t seconds.) Tj ET
+q 1 w 72 400 468 200 re S Q
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 227 >>
+stream
+BT /F1 18 Tf 72 720 Td (Chapter 2: Dynamics) Tj ET
+BT /F1 11 Tf 72 690 Td (Problem 2. A body moves along a straight line.) Tj ET
+BT /F1 11 Tf 72 674 Td (Find the displacement after t seconds.) Tj ET
+q 1 w 72 400 468 200 re S Q
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 232 >>
+stream
+BT /F1 18 Tf 72 720 Td (Chapter 3: Energy & Work) Tj ET
+BT /F1 11 Tf 72 690 Td (Problem 3. A body moves along a straight line.) Tj ET
+BT /F1 11 Tf 72 674 Td (Find the displacement after t seconds.) Tj ET
+q 1 w 72 400 468 200 re S Q
+endstream
+endobj
+10 0 obj
+<< /Type /Outlines /First 11 0 R /Last 13 0 R /Count 3 >>
+endobj
+11 0 obj
+<< /Title (Chapter 1: Kinematics) /Parent 10 0 R /Next 12 0 R /Dest [4 0 R /Fit] >>
+endobj
+12 0 obj
+<< /Title (Chapter 2: Dynamics) /Parent 10 0 R /Prev 11 0 R /Next 13 0 R /Dest [6 0 R /Fit] >>
+endobj
+13 0 obj
+<< /Title (Chapter 3: Energy & Work) /Parent 10 0 R /Prev 12 0 R /Dest [8 0 R /Fit] >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000015 00000 n 
+0000000104 00000 n 
+0000000173 00000 n 
+0000000270 00000 n 
+0000000396 00000 n 
+0000000675 00000 n 
+0000000801 00000 n 
+0000001078 00000 n 
+0000001204 00000 n 
+0000001486 00000 n 
+0000001560 00000 n 
+0000001660 00000 n 
+0000001771 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+1874
+%%EOF

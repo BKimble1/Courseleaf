@@ -1,0 +1,41 @@
+{
+  "identifier" : "3D8F1C2A-5B77-4C0E-9A61-2F4E8C1D7B90",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6F2A9C41-1B3D-4E8F-A7C0-5D9E2B6F1A34",
+      "localizations" : [
+        {
+          "description" : "One-time unlock. Nothing is gated at launch; this product exists for testing the purchase flow.",
+          "displayName" : "Courseleaf Unlock",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "dev.courseleaf.unlock",
+      "referenceName" : "Courseleaf Unlock",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
