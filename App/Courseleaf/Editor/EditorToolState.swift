@@ -47,6 +47,20 @@ enum InkToolKind: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// Width bounds this app allows for the tool, in page points.
+    ///
+    /// These are Courseleaf's own limits, not a PencilKit query: the SDK has no
+    /// stable public accessor for an ink type's valid width range, and guessing
+    /// one broke the build twice. The range brackets `widthPresets` with room to
+    /// drag a slider past either end.
+    var widthBounds: ClosedRange<Double> {
+        switch self {
+        case .pen: return 0.5...12
+        case .pencil: return 1...20
+        case .highlighter: return 6...48
+        }
+    }
+
     var defaultPreset: InkToolPreset {
         switch self {
         case .pen: return InkToolPreset(width: 2, color: .black)
@@ -201,11 +215,8 @@ struct EditorToolState: Codable, Hashable, Sendable {
 
     mutating func setPreset(_ preset: InkToolPreset, for kind: InkToolKind) {
         var p = preset
-        // PencilKit exposes the bounds as two calls; there is no validWidthRange.
-        let inkType = kind.pencilKitInkType
-        let minimum = PKInkingTool.minimumWidth(forInkType: inkType)
-        let maximum = PKInkingTool.maximumWidth(forInkType: inkType)
-        p.width = Double(min(max(CGFloat(p.width), minimum), maximum))
+        let bounds = kind.widthBounds
+        p.width = min(max(p.width, bounds.lowerBound), bounds.upperBound)
         inkPresets[kind] = p
         noteColor(p.color)
     }

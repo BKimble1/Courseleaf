@@ -88,11 +88,17 @@ final class EditorToolStateTests: XCTestCase {
     func testPresetWidthIsClampedToThePencilKitRange() {
         var state = EditorToolState()
         state.setPreset(InkToolPreset(width: 10_000, color: .black), for: .pen)
-        let minimum = PKInkingTool.minimumWidth(forInkType: .pen)
-        let maximum = PKInkingTool.maximumWidth(forInkType: .pen)
-        XCTAssertEqual(state.preset(for: .pen).width, Double(maximum), accuracy: 0.0001)
+        let bounds = InkToolKind.pen.widthBounds
+        XCTAssertEqual(state.preset(for: .pen).width, bounds.upperBound, accuracy: 0.0001)
         state.setPreset(InkToolPreset(width: 0, color: .black), for: .pen)
-        XCTAssertEqual(state.preset(for: .pen).width, Double(minimum), accuracy: 0.0001)
+        XCTAssertEqual(state.preset(for: .pen).width, bounds.lowerBound, accuracy: 0.0001)
+        // Every offered preset must sit inside the bounds we advertise.
+        for kind in InkToolKind.allCases {
+            for preset in kind.widthPresets {
+                XCTAssertTrue(kind.widthBounds.contains(preset), "\(kind) preset \(preset) is outside \(kind.widthBounds)")
+            }
+            XCTAssertTrue(kind.widthBounds.contains(kind.defaultPreset.width))
+        }
     }
 
     func testRecentColorsAreMostRecentFirstAndBounded() {
