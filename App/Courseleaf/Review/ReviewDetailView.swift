@@ -13,10 +13,23 @@ struct ReviewDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isRevealed: Bool? = nil
     @State private var isWorking = false
+    /// Bumped whenever the document changed underneath the preview, so it redraws.
+    @State private var previewRevision = 0
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    ReviewPagePreview(entry: entry, revision: previewRevision)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                } header: {
+                    Text(entry.item.region == nil ? "The page" : "The work")
+                } footer: {
+                    Text(entry.item.answerTapeID == nil
+                         ? "Shown as it is in the notebook."
+                         : "Shown as it is in the notebook, tape and all. Revealing the answer below redraws this.")
+                }
+
                 Section("Prompt") {
                     Text(entry.item.prompt ?? "No prompt was added. Open the page and try to recall the result before checking it.")
                         .font(Typography.body)
@@ -106,6 +119,9 @@ struct ReviewDetailView: View {
         let target = !(isRevealed ?? false)
         if await model.setTapeRevealed(target, for: entry) {
             isRevealed = target
+            // The tape lives in the document, so the picture has to be redrawn
+            // for the reveal to mean anything here.
+            previewRevision += 1
         }
     }
 

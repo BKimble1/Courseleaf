@@ -94,6 +94,23 @@ targets:
     entitlements:
       path: Courseleaf/Courseleaf.entitlements
       properties: {}
+  CourseleafUITests:
+    # A genuine UI-test target. The app-hosted unit tests can show that the
+    # toolbar tells its delegate the right thing; only this can show that the
+    # button is on screen, big enough to hit, and reachable at the width the
+    # student is using.
+    type: bundle.ui-testing
+    platform: iOS
+    supportedDestinations: [iOS]
+    sources: [CourseleafUITests]
+    dependencies:
+      - target: Courseleaf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.idlery.courseleaf.uitests
+        TEST_TARGET_NAME: Courseleaf
+        TARGETED_DEVICE_FAMILY: "2"
+
   CourseleafTests:
     type: bundle.unit-test
     platform: iOS
@@ -117,11 +134,12 @@ schemes:
       targets:
         Courseleaf: all
         CourseleafTests: [test]
+        CourseleafUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
-      targets: [CourseleafTests]
+      targets: [CourseleafTests, CourseleafUITests]
       gatherCoverageData: true
     archive:
       config: Release

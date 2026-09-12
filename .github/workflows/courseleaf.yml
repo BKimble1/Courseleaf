@@ -25,27 +25,54 @@ jobs:
       - name: Test
         # `swift test | tee` reports tee's exit code, not the test run's, so this
         # job once printed failing tests and still went green. bash + pipefail
-        # makes the pipeline fail with the tests (Scripts/check-test-results.sh
-        # is the equivalent guard on the macOS job).
+        # makes the pipeline fail with the tests; the xUnit report below is the
+        # Linux equivalent of Scripts/check-test-results.sh on the macOS job,
+        # because with --parallel a passing run prints no "Executed N tests"
+        # line at all — only failures get one — so the log cannot be counted.
         shell: bash
         run: |
           set -o pipefail
-          swift test --parallel 2>&1 | tee test-output.log
-      - name: Summary
+          rm -f test-results*.xml
+          swift test --parallel --xunit-output test-results.xml 2>&1 | tee test-output.log
+      - name: Test verdict
         if: always()
         shell: bash
         run: |
-          grep -E "Executed .* tests" test-output.log | tail -1 >> "$GITHUB_STEP_SUMMARY" || true
-          # A run that executed nothing is not evidence of anything.
-          if ! grep -qE "Executed [1-9][0-9]* test" test-output.log; then
-            echo "FAIL: no tests executed" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          if grep -qE "error: .*XCTAssert|with [1-9][0-9]* failure" test-output.log; then
-            echo "FAIL: the log contains test failures" | tee -a "$GITHUB_STEP_SUMMARY"
-            grep -E "error: " test-output.log | head -20 >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          python3 - "$GITHUB_STEP_SUMMARY" <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          out = open(sys.argv[1], "a") if len(sys.argv) > 1 else sys.stdout
+          def say(line):
+              print(line)
+              print(line, file=out)
+          files = sorted(glob.glob("test-results*.xml"))
+          if not files:
+              say("FAIL: swift test wrote no xUnit report, so nothing is proven")
+              raise SystemExit(1)
+          total = failures = errors = 0
+          names = []
+          for path in files:
+              root = ET.parse(path).getroot()
+              suites = root.iter("testsuite")
+              for suite in suites:
+                  total += int(suite.get("tests", 0))
+                  failures += int(suite.get("failures", 0))
+                  errors += int(suite.get("errors", 0))
+              for case in root.iter("testcase"):
+                  for bad in list(case.iter("failure")) + list(case.iter("error")):
+                      names.append(f"{case.get('classname','?')}.{case.get('name','?')}: "
+                                   f"{(bad.get('message') or '')[:200]}")
+          say("## Core package (Linux)")
+          say(f"- files: {', '.join(files)}")
+          say(f"- total: {total}, failures: {failures}, errors: {errors}")
+          for name in names[:25]:
+              say(f"  - FAILED {name}")
+          if total == 0:
+              say("FAIL: no tests executed; a passing job with zero tests is not evidence")
+              raise SystemExit(1)
+          if failures or errors:
+              raise SystemExit(f"FAIL: {failures} failure(s), {errors} error(s)")
+          say(f"\nOK: {total} tests executed, 0 failed.")
+          PY
 
   app-ios-simulator:
     name: iPad app (macOS, Xcode, simulator)

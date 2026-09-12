@@ -890,6 +890,12 @@ final class NotebookEditorViewController: UIViewController {
         }
     }
 
+    /// Applies a pending document change to the views now rather than on the
+    /// next run loop. The coalescing is deliberate — a grouped command should
+    /// redraw once — so this exists for tests and for the places that must see
+    /// the result before they continue.
+    func applyPendingViewUpdatesNow() { flushDocumentChanges() }
+
     private func flushDocumentChanges() {
         let changes = pendingChangeSet
         pendingChangeSet = .empty
@@ -1413,22 +1419,27 @@ extension NotebookEditorViewController: EditorToolbarDelegate {
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Clear Page", style: .destructive) { [weak self] _ in
-            guard let self else { return }
-            self.selectionController.clearSelection()
-            // Commit what is on the canvas *before* clearing it, so undo puts
-            // back the stroke that was just drawn and not the older ink the
-            // document happened to be holding.
-            if let canvas = self.canvas(for: pageID) { self.commitInkImmediately(canvas: canvas) }
-            self.performDocumentOperation("Clear Page") {
-                try self.session.apply(.clearPage(pageID))
-            }
-            // The document is now the authority again; reload the canvas from it.
-            if let canvas = self.canvas(for: pageID), let page = self.session.editor.page(pageID) {
-                canvas.setDrawing(PKDrawing(), assetID: page.inkLayers.first?.dataAssetID)
-            }
-            self.thumbnails.invalidate(pageID: pageID)
+            self?.clearPage(pageID)
         })
         present(alert, animated: true)
+    }
+
+    /// Empties a page. Separate from the confirmation so the behaviour can be
+    /// exercised without driving an alert.
+    func clearPage(_ pageID: PageID) {
+        selectionController.clearSelection()
+        // Commit what is on the canvas *before* clearing it, so undo puts back
+        // the stroke that was just drawn and not the older ink the document
+        // happened to be holding.
+        if let canvas = canvas(for: pageID) { commitInkImmediately(canvas: canvas) }
+        performDocumentOperation("Clear Page") {
+            try session.apply(.clearPage(pageID))
+        }
+        // The document is the authority again; reload the canvas from it.
+        if let canvas = canvas(for: pageID), let page = session.editor.page(pageID) {
+            canvas.setDrawing(PKDrawing(), assetID: page.inkLayers.first?.dataAssetID)
+        }
+        thumbnails.invalidate(pageID: pageID)
     }
 
     /// Applies a text style to the selected text object and keeps it as the default for new boxes.

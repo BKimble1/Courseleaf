@@ -22,7 +22,21 @@ struct SettingsView: View {
                 } header: {
                     Text("Input")
                 } footer: {
-                    Text("Palm rejection is Apple Pencil behaviour provided by the system. Two fingers always pan and zoom.")
+                    Text("Palm rejection is Apple Pencil behaviour provided by the system. Two fingers always pan and zoom. The left-handed layout moves the controls to the other side; it does not reverse their order.")
+                }
+
+                Section {
+                    Toggle("Scribble to erase", isOn: $settings.scribbleErase)
+                        .accessibilityHint("Cross writing out with the pen or pencil to erase it")
+                    Toggle("Correct shapes on hold", isOn: $settings.shapeCorrection)
+                        .accessibilityHint("Hold at the end of a freehand shape to swap it for a clean one")
+                    Toggle("Snap shapes to straight and equal", isOn: $settings.snapShapes)
+                        .disabled(!settings.shapeCorrection)
+                        .accessibilityHint("Straightens a nearly level line and squares a nearly equal rectangle")
+                } header: {
+                    Text("Writing gestures")
+                } footer: {
+                    Text("Scribble to erase works with the pen and pencil, over handwriting only — never over a PDF page, an image, a text box or tape. It looks for a deliberate back-and-forth across writing that is already there, and leaves anything it is unsure about as ordinary ink. One undo puts the writing back. Shape correction never changes a stroke unless you hold at the end of it, and a deliberate diagonal stays diagonal.")
                 }
 
                 Section {
@@ -149,16 +163,33 @@ struct AboutView: View {
                 Text("Your files")
             }
             Section {
-                Link(destination: URL(string: "https://example.invalid/courseleaf/support")!) {
-                    Label("Support page (placeholder link)", systemImage: "questionmark.circle")
+                // Not links. A tappable address that goes nowhere is worse than
+                // saying so: these pages are not published yet, and inventing a
+                // URL for them would put a dead link in front of a tester.
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Support page")
+                        Text("Not published yet. This is an internal test build.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "questionmark.circle")
                 }
-                Link(destination: URL(string: "https://example.invalid/courseleaf/privacy")!) {
-                    Label("Privacy policy (placeholder link)", systemImage: "hand.raised")
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Privacy policy")
+                        Text("Not published yet. What the app does with your files is described above.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "hand.raised")
                 }
             } header: {
                 Text("Support")
             } footer: {
-                Text("These addresses are placeholders. The real support and privacy pages are published before release.")
+                Text("Both pages go up before any public release. Until then there is nothing to link to, so nothing here is a link.")
             }
         }
         .navigationTitle("About")

@@ -49,7 +49,7 @@ final class AppEnvironment {
          pdfInspector: (any PDFInspecting)? = nil,
          imageInspector: (any ImageInspecting)? = nil,
          clock: any Clock = SystemClock()) {
-        let rootURL = rootURL ?? AppEnvironment.defaultLibraryRoot()
+        let rootURL = rootURL ?? UITestLaunch.libraryRoot() ?? AppEnvironment.defaultLibraryRoot()
         self.rootURL = rootURL
         self.settings = settings ?? SettingsStore()
         self.entitlements = entitlements ?? StoreKitEntitlementStore()
@@ -190,5 +190,45 @@ final class AppEnvironment {
     /// Refreshes `catalogUnavailableReason` (Settings and Search show it).
     func refreshCatalogState() async {
         catalogUnavailableReason = await libraryService.catalogUnavailableReason
+    }
+}
+
+
+// MARK: - UI test launch mode
+
+/// `-CourseleafUITest` puts the app on a throwaway library in a temporary
+/// directory and opens one notebook, so a UI test drives the real screens
+/// without ever touching a student's files. Nothing else changes: the same
+/// views, the same editor, the same stores.
+enum UITestLaunch {
+    static let argument = "-CourseleafUITest"
+
+    static var isActive: Bool { ProcessInfo.processInfo.arguments.contains(argument) }
+
+    /// A fresh library root per launch, so a test never inherits the last run's
+    /// state and never writes into Application Support.
+    static func libraryRoot() -> URL? {
+        guard isActive else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CourseleafUITest", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+extension AppEnvironment {
+    /// Creates and opens one notebook when launched for UI testing, so a test
+    /// starts in the editor instead of driving the library first.
+    func openUITestNotebookIfNeeded() async {
+        guard UITestLaunch.isActive else { return }
+        settings.hasSeenOnboarding = true
+        guard router.openNotebookID == nil else { return }
+        guard let id = try? await library.createNotebook(title: "UI Test Notebook", folderID: nil,
+                                                         template: .preset(.lined), pageSize: .letter,
+                                                         cover: .default, pageCount: 3) else { return }
+        noteLibraryChanged()
+        router.openNotebook(id)
     }
 }

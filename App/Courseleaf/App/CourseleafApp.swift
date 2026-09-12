@@ -15,7 +15,10 @@ struct CourseleafApp: App {
             RootView()
                 .environment(appEnvironment)
                 .preferredColorScheme(appEnvironment.settings.appearance.colorScheme)
-                .task { await appEnvironment.prepare() }
+                .task {
+                    await appEnvironment.prepare()
+                    await appEnvironment.openUITestNotebookIfNeeded()
+                }
         }
         .commands { shortcuts }
         .onChange(of: scenePhase) { _, phase in

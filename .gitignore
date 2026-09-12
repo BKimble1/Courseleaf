@@ -23,3 +23,6 @@ DerivedData/
 # Python bytecode from running the release scripts locally
 __pycache__/
 *.pyc
+
+# swift test xUnit reports (CI evidence, not source)
+test-results*.xml

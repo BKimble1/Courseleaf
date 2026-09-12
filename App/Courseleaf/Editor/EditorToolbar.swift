@@ -159,6 +159,12 @@ final class EditorToolbar: UIView {
         configure(redoButton, symbol: "arrow.uturn.forward", label: "Redo")
         configure(insertButton, symbol: "plus", label: "Insert")
         configure(moreButton, symbol: "ellipsis", label: "More")
+        // Stable identifiers so a UI test names a control rather than guessing
+        // at its position or its localised label.
+        undoButton.accessibilityIdentifier = "toolbar.undo"
+        redoButton.accessibilityIdentifier = "toolbar.redo"
+        insertButton.accessibilityIdentifier = "toolbar.insert"
+        moreButton.accessibilityIdentifier = "toolbar.more"
         undoButton.addAction(UIAction { [weak self] _ in guard let self else { return }; self.delegate?.toolbarDidTapUndo(self) }, for: .touchUpInside)
         redoButton.addAction(UIAction { [weak self] _ in guard let self else { return }; self.delegate?.toolbarDidTapRedo(self) }, for: .touchUpInside)
         insertButton.showsMenuAsPrimaryAction = true
@@ -217,9 +223,9 @@ final class EditorToolbar: UIView {
         for index in 0..<tier.colorCount { stack.addArrangedSubview(makeColorButton(index: index)) }
         stack.addArrangedSubview(makeSeparator())
 
-        for favorite in state.favorites.prefix(tier.favoriteCount) {
+        for (index, favorite) in state.favorites.prefix(tier.favoriteCount).enumerated() {
             favoriteOrder.append(favorite.id)
-            stack.addArrangedSubview(makeFavoriteButton(favorite))
+            stack.addArrangedSubview(makeFavoriteButton(favorite, index: index))
         }
         if !state.favorites.isEmpty { stack.addArrangedSubview(makeSeparator()) }
 
@@ -302,6 +308,7 @@ final class EditorToolbar: UIView {
         button.addAction(UIAction { [weak self] _ in self?.select(tool) }, for: .touchUpInside)
         button.showsMenuAsPrimaryAction = false
         button.menu = optionsMenu(for: tool)
+        button.accessibilityIdentifier = "toolbar.tool.\(EditorToolbar.identifier(for: tool))"
         toolButtons[tool] = button
         applyToolAppearance(button, tool: tool)
         return button
@@ -367,6 +374,7 @@ final class EditorToolbar: UIView {
             guard index < widths.count else { return }
             self.update { $0.applyWidth(widths[index]) }
         }, for: .touchUpInside)
+        button.accessibilityIdentifier = "toolbar.width.\(index)"
         widthButtons.append(button)
         return button
     }
@@ -412,6 +420,7 @@ final class EditorToolbar: UIView {
                 }
             },
         ])
+        button.accessibilityIdentifier = "toolbar.color.\(index)"
         colorButtons.append(button)
         return button
     }
@@ -428,7 +437,7 @@ final class EditorToolbar: UIView {
 
     // MARK: Favourites
 
-    private func makeFavoriteButton(_ favorite: ToolFavorite) -> UIButton {
+    private func makeFavoriteButton(_ favorite: ToolFavorite, index: Int) -> UIButton {
         let button = UIButton(type: .system)
         configure(button, symbol: favorite.kind.symbolName, label: favorite.displayName)
         let id = favorite.id
@@ -445,6 +454,7 @@ final class EditorToolbar: UIView {
                 self?.update { $0.removeFavorite(id: id) }
             },
         ])
+        button.accessibilityIdentifier = "toolbar.favorite.\(index)"
         favoriteButtons[favorite.id] = button
         applyFavoriteAppearance(button, favorite: favorite)
         return button
@@ -647,6 +657,19 @@ final class EditorToolbar: UIView {
     }
 
     // MARK: Helpers
+
+    /// Short stable name for a tool, for accessibility identifiers.
+    static func identifier(for tool: EditorTool) -> String {
+        switch tool {
+        case .ink(let kind): return kind.rawValue
+        case .eraser: return "eraser"
+        case .lasso: return "lasso"
+        case .text: return "text"
+        case .image: return "image"
+        case .shape: return "shape"
+        case .tape: return "tape"
+        }
+    }
 
     static func widthTitle(_ width: Double) -> String {
         width == width.rounded() ? "\(Int(width)) pt" : String(format: "%.1f pt", width)
