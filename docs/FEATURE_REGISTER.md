@@ -2,12 +2,13 @@
 
 Every benchmark record F001–F112 from `docs/research/Goodnotes_Research_and_App_Plan.md`,
 mapped to a Courseleaf milestone and an honest status. Updated 2026-09-12 at commit
-`3b105a5`: the portable core modules (DocumentCore, PageGeometry, Editing,
-Persistence, Archive, Catalog, Fixtures) are committed with 203 passing Linux tests
-(`docs/VALIDATION.md` → Portable test runs). The Workspace façade (`LibraryService`,
-`DocumentSession`) and every screen under `App/` are still being written in
-parallel. Nothing in this table has been compiled with an Apple SDK or run on an
-iPad yet.
+`cb91777`. The portable core (DocumentCore, PageGeometry, Editing, Persistence,
+Archive, Catalog, Workspace, Fixtures) passes 219 Linux tests, and the iPad app
+under `App/` is written: it builds for the iOS 26.2 simulator with Xcode 26.3 and
+runs 63 `CourseleafTests` with 0 failures in CI job `app-ios-simulator` (run
+34694155083, commit `7627793`). Both runs are recorded in `docs/VALIDATION.md`.
+**No row is `device-tested` and none may become one here: this project has no
+physical iPad and no Apple Pencil, so A02, A03, A06, A16, A17 and A19 stay open.**
 
 ## Legend
 
@@ -30,61 +31,70 @@ does the work: launch gates G0–G6, post-launch backlog cards P1–P8 (`docs/BA
 - `retired` — historical benchmark; not a requirement.
 
 **Owner / evidence** names the module that owns the item (Persistence, Archive, Catalog,
-PageGeometry, Editing, Workspace, App/Library, App/Editor, App/Interchange) and the
-test or fixture that will demonstrate it. Test names given are portable tests that
-exist in `Tests/` and passed at the commit named in `docs/VALIDATION.md`
-("portable: passing"); `CourseleafTests` entries are simulator tests still to be
-written. A status moves right only when the named evidence exists in `docs/VALIDATION.md`.
+PageGeometry, Editing, Workspace, App/Library, App/Editor, App/Ink, App/Interchange,
+App/Search, App/Review, App/Export, App/Settings) and the test that demonstrates it.
+Names under `Tests/` are Linux tests from the 219-test run recorded in
+`docs/VALIDATION.md` → Portable test runs ("portable: passing"). Names from
+`AppShellTests`, `EditorInkEngineTests`, `EditorLayoutTests`, `EditorSearchTests`,
+`EditorToolStateTests`, `InterchangeInspectorTests`, `InterchangeExportTests` and
+`InterchangeOCRTests` are `App/CourseleafTests` cases from the 63-test iPad
+simulator run recorded in the same file. A status moves right only when the
+evidence exists and is named here; "not written" in this column means no such code
+exists, and it is removed the moment it does.
 
 **Composite rows.** A row's status is that of its least-advanced required part. A
-user-visible capability whose portable logic already passes its tests but whose
-Workspace or `App/` part is unwritten stays `in progress`; the evidence column says
-which portable tests pass and what is still missing. Only rows with no app part
-(C003, C004) carry `unit-tested`.
+capability whose portable logic passes its Linux tests but whose `App/` screen has
+no test is `implemented`, and the evidence column says which part is covered and
+which is not. A row is `simulator-tested` only where a named `CourseleafTests` case
+exercises the app code the row is about; where such a case covers only a
+neighbouring component it is cited as partial evidence and the row stays
+`implemented`. A row with a required part that is not written at all stays
+`in progress` (F007, F059, F066). Only rows with no app part (C003, C004) carry
+`unit-tested`.
 
 ## Library and document organization
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F001 | Folders (nested courses/folders) | Launch | G1 | in progress | Persistence `LibraryStore` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`, `testDeletingAFolderTrashesItsSubtreeAndRestoreBringsItBack`); Workspace `folders(in:)`/`createFolder` and App/Library not written |
+| F001 | Folders (nested courses/folders) | Launch | G1 | simulator-tested | Persistence `LibraryStore`, Workspace `createFolder`/`folders(in:)`, App/Library `LibrarySidebarView` over `LibraryViewModel`. Simulator: `AppShellTests.testLibraryViewModelCreatesAFolderAndAQuickNote` creates a course through a real `LibraryService` and lists it. Portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`, `testDeletingAFolderTrashesItsSubtreeAndRestoreBringsItBack`; nesting under a parent is exercised on Linux only (`LibraryServiceTests.testReviewQueuePerCourseAndUnfiledWithMarkAndReopen` builds Physics/Week 1) |
 | F002 | Folder appearance (colours, icons) | Personal | P1 | deferred | BACKLOG P1. `Folder.color` exists in the model; icon choice and a picker UI are not launch scope |
-| F003 | Library views (grid, list) | Launch | G1 | in progress | App/Library over `LibraryServicing.documents(in:)`; Workspace and screen not written; `CourseleafTests` (simulator) planned |
-| F004 | Item management (rename, move, delete) | Launch | G1 | in progress | Persistence `LibraryStore` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`, `testDuplicateYieldsDistinctIdentifiersAndEqualContent`); Workspace `rename`/`move`/`duplicate`/`delete` and App/Library not written |
-| F005 | Favorites (documents, folders; pages via bookmarks) | Launch | G1 | in progress | DocumentCore `Document.isFavorite`, `Folder.isFavorite` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`); Workspace `LibraryScope.favorites` and App/Library not written; page favourites are bookmarks (F011) |
-| F006 | Trash (recover documents, folders, pages; empty) | Launch | G1 | in progress | Persistence trash (portable: passing — `LibraryStoreTests.testTrashRestorePurgeAndEmptyTrash`); page trash in Editing (portable: passing — `DocumentEditorTests.testReviewItemsOfDeletedPagesAreHiddenUntilRestore`, `testRestoreUsesMinOfOriginalIndexAndPageCountAndClampsLastViewed`); Workspace `restore`/`purge`/`emptyTrash` and App/Library not written |
-| F007 | Page order (reorder, copy, move, combine) | Launch | G1/G2 | in progress | Editing `movePage`/`duplicatePage`/`insertPages`/`copiesOfPages` (portable: passing — `DocumentEditorTests.testA11PageOperationsKeepOtherPagesAndIDsStable`, `testMakeDuplicateAndCopiesOfPagesUseFreshIDsAndSharedAssets`); move/copy between notebooks needs Workspace sessions and the App/Editor page sheet, not written |
-| F008 | Covers | Launch | G1 | in progress | DocumentCore `CoverStyle` (8 original palettes × 4 patterns); Persistence `setCover` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`); App/Library cover rendering and picker not written |
-| F009 | Templates (custom template/cover import) | Launch | G1 built-in; P1 custom import | in progress | Built-in originals only at launch (F010). Importing user templates/covers is BACKLOG P1 |
-| F010 | Paper choices (blank, ruled, grid, Cornell, …) | Launch | G1 | in progress | PageGeometry `TemplateGeometry` (blank, lined, grid, dotted, cornell, engineering in page points; portable: passing — `TemplateGeometryTests`, 6 tests); App/Editor template renderer not written. Planner paper not at launch |
+| F003 | Library views (grid, list) | Launch | G1 | implemented | App/Library `LibraryContentView` draws both layouts from `LibraryViewModel.Presentation`, sorted by modified/created/title/page count. Simulator `AppShellTests.testLibraryViewModelListsANotebookItCreated` covers listing and sorting against a real service; neither layout itself is covered by a test |
+| F004 | Item management (rename, move, delete) | Launch | G1 | implemented | Persistence `LibraryStore` and Workspace `rename`/`move`/`duplicate`/`delete` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`, `testDuplicateYieldsDistinctIdentifiersAndEqualContent`, `LibraryServiceTests.testMoveRenameFavoriteCoverAndDuplicateWhileOpenAndClosed`); App/Library `LibraryViewModel` actions and `FolderPickerView` are written and compile, and no simulator test names them |
+| F005 | Favorites (documents, folders; pages via bookmarks) | Launch | G1 | implemented | DocumentCore `Document.isFavorite`/`Folder.isFavorite`, Workspace `setFavorite` and `LibraryScope.favorites` (portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover`, `LibraryServiceTests.testMoveRenameFavoriteCoverAndDuplicateWhileOpenAndClosed`); the sidebar scope mapping is covered by `AppShellTests.testSidebarSelectionMapsToLibraryScopes`, the favourite action in `LibraryViewModel` is not. Page favourites are bookmarks (F011) |
+| F006 | Trash (recover documents, folders, pages; empty) | Launch | G1 | implemented | Persistence trash (portable: passing — `LibraryStoreTests.testTrashRestorePurgeAndEmptyTrash`); page trash in Editing (portable: passing — `DocumentEditorTests.testReviewItemsOfDeletedPagesAreHiddenUntilRestore`, `testRestoreUsesMinOfOriginalIndexAndPageCountAndClampsLastViewed`); Workspace `restore`/`purge`/`emptyTrash` (`LibraryServiceTests.testTrashRestoreAndPurgeThroughTheService`); App/Library `TrashView`, the navigator's deleted-pages tab and Settings → Empty Trash are written and untested (`AppShellTests.testSidebarSelectionMapsToLibraryScopes` covers only the trash scope) |
+| F007 | Page order (reorder, copy, move, combine) | Launch | G1/G2 | in progress | Within a notebook this is done: Editing `movePage`/`duplicatePage`/`insertPages` (portable: passing — `DocumentEditorTests.testA11PageOperationsKeepOtherPagesAndIDsStable`, `testMakeDuplicateAndCopiesOfPagesUseFreshIDsAndSharedAssets`, `LibraryServiceTests.testInsertPDFPagesAfterChosenPageKeepsExistingPageIDsInOrder`) driven by App/Editor `PageNavigatorViewController` (drag to reorder, insert, duplicate, delete, restore). Moving or copying pages **between** notebooks is not written: Editing `copiesOfPages` has no caller in `App/` |
+| F008 | Covers | Launch | G1 | simulator-tested | DocumentCore `CoverStyle` (8 original palettes × 4 patterns); App/Design `CoverArt`/`CoverView` render them and `CoverPickerList`/`CoverPickerSheet` choose them. Simulator: `AppShellTests.testEveryCoverCombinationProducesGeometry` (every combination draws, spine included), `testCoverPalettesAreDistinct`, and `testLibraryViewModelListsANotebookItCreated` (a created notebook keeps its cover). Portable: passing — `LibraryStoreTests.testCreateListRenameMoveFavoriteCover` |
+| F009 | Templates (custom template/cover import) | Launch | G1 built-in; P1 custom import | implemented | Built-in originals only: `PaperTemplate.preset` in App/Library `NewNotebookSheet` and `CoverArt.allStyles` in `CoverPickerList` (see F008, F010). Importing a user template or cover is not written and stays BACKLOG P1 |
+| F010 | Paper choices (blank, ruled, grid, Cornell, …) | Launch | G1 | simulator-tested | PageGeometry `TemplateGeometry` (blank, lined, grid, dotted, cornell, engineering in page points; portable: passing — `TemplateGeometryTests`, 6 tests). App/Design `PagePreviewGeometry` and App/Editor `PageBackgroundLayer`/`ThumbnailCache`/`PageCompositor` draw those primitives; simulator `AppShellTests.testTemplatePreviewGeometryMatchesThePageGeometryModule` checks every `PaperKind` against the module and `testTemplatePreviewFitsThePageIntoItsBox` the fit. The editor's background layer has no test of its own. Planner paper not at launch |
 
 ## Navigation and the writing environment
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F011 | Page navigation (thumbnails, bookmarks, outlines) | Launch | G2 | in progress | Editing `setPageBookmark` command exists; App/Editor thumbnails and bookmark list not written; `CourseleafTests` planned |
-| F012 | Imported outlines (PDF table of contents) | Launch | G3 | in progress | App/Interchange (PDFKit outline) not written; fixture `Fixtures/text-and-outline.pdf` (portable: passing — `FixtureCatalogTests.testTextAndOutlineFixtureContainsTitles`, `PDFFixtureTests.testInspectorRoundTripsBoxesRotationOutlineAndText`) |
+| F011 | Page navigation (thumbnails, bookmarks, outlines) | Launch | G2 | implemented | App/Editor `PageNavigatorViewController`: thumbnail grid over `ThumbnailCache`, a bookmarks tab over `Page.isBookmarked` (Editing `setPageBookmark`) and the PDF outline tab (F012); `scrollToPage`/`goToPage` in `NotebookEditorViewController`. No simulator test covers the navigator |
+| F012 | Imported outlines (PDF table of contents) | Launch | G3 | implemented | App/Editor navigator flattens PDFKit `outlineRoot` onto page indices. Outline reading is covered on the simulator by `InterchangeInspectorTests.testPDFKitInspectorReadsOutlineTitlesTextPresenceAndImageOnlyPages` and on Linux by `FixtureCatalogTests.testTextAndOutlineFixtureContainsTitles`, `PDFFixtureTests.testInspectorRoundTripsBoxesRotationOutlineAndText` over `Fixtures/text-and-outline.pdf`; the outline tab itself has no test |
 | F013 | Custom outlines | Personal | P1 | deferred | BACKLOG P1 |
-| F014 | Canvas navigation (zoom, scroll direction) | Launch | G2 | in progress | App/Editor not written: zoom and vertical scrolling at launch; canvas mapping (portable: passing — `PageMappingTests.testCanvasMappingAppliesZoomAndOffset`); horizontal progression is BACKLOG P1 |
-| F015 | Reading mode | Launch | G2 | in progress | App/Editor not written (input disabled, links followable, no edits) |
+| F014 | Canvas navigation (zoom, scroll direction) | Launch | G2 | simulator-tested | App/Editor `PageLayout`, `PageScrollView` and `EditorZoom`. Simulator: `EditorLayoutTests.testVerticalLayoutStacksPagesWithGapsAndPadding`, `testContentOffsetShowingPagePutsItAtTheTopOfTheViewport`, `testFitToWidthZoomFillsTheViewport`, `testEditorZoomClampsToTheContract`, `testPageIndexAtPointFallsBackToTheNearestPage` and `testHorizontalPagedLayoutGivesEachPageOneSlot`; scrolling stays bounded — `testPoolNeverExceedsItsLiveLimitScrollingThroughThreeHundredPages` and `testLiveIndicesStayWithinTheLimitAndFollowTheFocusPage` keep at most three live `PKCanvasView`s across 300 pages (the simulator half of A06). Portable: passing — `PageMappingTests.testCanvasMappingAppliesZoomAndOffset`. Horizontal paging now ships (toolbar → layout menu); `docs/BACKLOG.md` P1 still lists it as deferred and is out of date |
+| F015 | Reading mode | Launch | G2 | implemented | App/Editor `isReadingMode` disables drawing and object interaction (`PageCanvasView` interaction policy, toolbar collapses) and a tap follows a PDF link annotation's URL or internal destination (`canvas(_:readingModeTapAt:)`). No test covers it |
 | F016 | Multiple windows | Personal | P1 | deferred | BACKLOG P1; `UIApplicationSupportsMultipleScenes` is false at launch |
 | F017 | Toolbar layout customization | Personal | P1 | deferred | BACKLOG P1 |
-| F018 | Keyboard controls (shortcuts) | Launch | G2 | in progress | App/Editor `UIKeyCommand` set not written; `CourseleafTests` planned; A17 |
+| F018 | Keyboard controls (shortcuts) | Launch | G2 | implemented | App/Editor `keyCommands` (undo, redo, zoom in/out/fit width, select all, escape, next/previous page, page up/down) and App-level `CourseleafApp` commands (new notebook ⌘N, quick note ⇧⌘N, find ⌘F, settings ⌘,). No test covers them; A17 also needs a device |
 | F019 | Zoom Window | Personal | P1 | deferred | BACKLOG P1 |
-| F020 | Quick capture | Launch | G1 | in progress | DocumentCore `DocumentKind.quickNote`; Workspace `createQuickNote`/`LibraryScope.inbox` and App/Library not written |
+| F020 | Quick capture | Launch | G1 | simulator-tested | DocumentCore `DocumentKind.quickNote`; Workspace `createQuickNote`/`LibraryScope.inbox`; App/Library quick note action and Inbox scope. Simulator: `AppShellTests.testLibraryViewModelCreatesAFolderAndAQuickNote` (the note lands in the inbox until it is filed) and `testSidebarSelectionMapsToLibraryScopes` |
 | F021 | Home widgets | Personal | P1 | deferred | BACKLOG P1 |
 
 ## Pens and input
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F022 | Pen styles (fountain, ball, brush) | Launch subset | G2 | in progress | App/Editor `PencilKitInkEngine` not written: PencilKit pen only, labelled "Pen". No fountain/brush simulation; that is BACKLOG P2 |
-| F023 | Pencil (graphite) | Launch | G2 | in progress | PencilKit pencil ink via App/Editor `PencilKitInkEngine`, not written |
+| F022 | Pen styles (fountain, ball, brush) | Launch subset | G2 | simulator-tested | App/Editor `InkToolKind.pen` → `PKInkingTool(.pen)`, labelled "Pen"; App/Ink `PencilKitInkEngine` draws it. No fountain or brush simulation — that stays BACKLOG P2. Simulator: `EditorToolStateTests.testPresetWidthIsClampedToThePencilKitRange` (every ink kind's presets inside its advertised bounds) and `testToolStateRoundTripsThroughItsStore` (the pen's width and colour survive a relaunch); `testPencilKitToolFollowsTheSelectedTool` asserts the ink-type mapping for pencil and highlighter |
+| F023 | Pencil (graphite) | Launch | G2 | simulator-tested | App/Editor `InkToolKind.pencil` → `PKInkingTool(.pencil)` through App/Ink `PencilKitInkEngine`; simulator `EditorToolStateTests.testPencilKitToolFollowsTheSelectedTool` asserts the `.pencil` ink type |
 | F024 | Stroke patterns (dashed, dotted) | Personal | P2 | deferred | BACKLOG P2 |
-| F025 | Thickness presets | Launch | G2 | in progress | App/Editor tool presets stored in settings, not written |
-| F026 | Color controls | Launch subset | G2 | in progress | Presets and a custom colour at launch (App/Editor, not written; `Color` hex coding portable: passing — `GeometryTests.testColorHex`); ordering and eyedropper are BACKLOG P1 |
+| F025 | Thickness presets | Launch | G2 | simulator-tested | App/Editor `InkToolKind.widthPresets`/`widthBounds` per tool, stored by `EditorToolStateStore` in `UserDefaults`. Simulator: `EditorToolStateTests.testPresetWidthIsClampedToThePencilKitRange`, `testToolStateRoundTripsThroughItsStore`, `testCorruptStoredDataFallsBackToTheDefaults` |
+| F026 | Color controls | Launch subset | G2 | simulator-tested | App/Editor `EditorToolState` presets, recent colours and a `UIColorPickerViewController` custom colour. Simulator: `EditorToolStateTests.testRecentColorsAreMostRecentFirstAndBounded` (most recent first, bounded, no duplicates) and `testToolStateRoundTripsThroughItsStore`; portable `GeometryTests.testColorHex`. The picker presentation is untested; palette ordering and an eyedropper stay BACKLOG P1 |
 | F027 | Ink response (pressure, tip, stabilization) | Personal | P2 | deferred | BACKLOG P2; PencilKit pressure response is inherent, no extra controls |
-| F028 | Highlighter | Launch | G2 | in progress | PencilKit marker ink (App/Editor, not written); band order (portable: passing — `PageMappingTests.testTapePolicyAndCompositingBands`); export blending is A05/A12 simulator/device evidence |
-| F029 | Stylus and touch (finger drawing, palm rejection) | Launch | G2 | in progress | App/Editor `PKCanvasView.drawingPolicy` (pencilOnly default, anyInput opt-in), not written; palm rejection is a device gate (A03/A16) |
+| F028 | Highlighter | Launch | G2 | simulator-tested | App/Editor `InkToolKind.highlighter` → `PKInkingTool(.marker)`; simulator `EditorToolStateTests.testPencilKitToolFollowsTheSelectedTool` asserts the `.marker` ink type and `testPresetWidthIsClampedToThePencilKitRange` its wider band. Band order portable (`PageMappingTests.testTapePolicyAndCompositingBands`). Marker blending in an export is not separately asserted by `InterchangeExportTests` (A05/A12) |
+| F029 | Stylus and touch (finger drawing, palm rejection) | Launch | G2 | simulator-tested | App/Editor `EditorInputSettings` → `PKCanvasView.drawingPolicy` (pencilOnly default, anyInput opt-in). Simulator: `EditorToolStateTests.testDrawingPolicyFollowsTheInputSettings`, `AppShellTests.testSettingsDefaults` and `testSettingsPersistAcrossStores` (the Settings toggle reaches the canvas policy). Palm rejection is PencilKit's own and remains a device gate (A03/A16) with no device here |
 | F030 | Hover preview | Personal | P2 | deferred | BACKLOG P2 |
 | F031 | Pencil Pro (squeeze, barrel roll) | Personal | P2 | deferred | BACKLOG P2 |
 
@@ -92,36 +102,36 @@ which portable tests pass and what is still missing. Only rows with no app part
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F032 | Eraser variants | Launch subset | G2 | in progress | App/Editor: pixel (`PKEraserTool(.bitmap)`) and whole-stroke (`.vector`), not written; segment eraser BACKLOG P2. Mask semantics (portable: passing — `ReferenceInkTests.testPartialEraseThenMoveAndRecolorKeepsMask`, `InkFixtureTests.testPartiallyErasedSampleKeepsMasksThroughTransformAndRoundTrip`) (A10) |
+| F032 | Eraser variants | Launch subset | G2 | simulator-tested | App/Editor pixel (`PKEraserTool(.bitmap)`) and whole-stroke (`.vector`) modes — simulator `EditorToolStateTests.testPencilKitToolFollowsTheSelectedTool`. Erase masks survive transform and recolour and erased ink stays unselectable — simulator `EditorInkEngineTests.testTransformingAStrokeConcatenatesTheTransformAndKeepsTheEraseMask`, `testRecoloringKeepsPathTransformAndMaskAndOnlyChangesTheInkColour`, `testStrokeIndicesIntersectingSelectsOnlyStrokesWithVisibleInkInTheRect`; portable `ReferenceInkTests.testPartialEraseThenMoveAndRecolorKeepsMask`, `InkFixtureTests.testPartiallyErasedSampleKeepsMasksThroughTransformAndRoundTrip` (A10). Segment eraser stays BACKLOG P2 |
 | F033 | Erase filters | Personal | P2 | deferred | BACKLOG P2 |
 | F034 | Tool return after erasing | Personal | P2 | deferred | BACKLOG P2 |
-| F035 | Clear page | Launch | G2 | in progress | Editing `clearPage` (portable: passing — `DocumentEditorTests.testClearPageRemovesObjectsAndEmptiesInkButKeepsMetadata`); App/Editor menu item not written |
+| F035 | Clear page | Launch | G2 | implemented | Editing `clearPage` (portable: passing — `DocumentEditorTests.testClearPageRemovesObjectsAndEmptiesInkButKeepsMetadata`); App/Editor `toolbarDidRequestClearPage` clears the canvas behind a confirmation alert and leaves the page metadata. No test covers the menu item |
 | F036 | Scribble to erase | Personal | P2 | deferred | BACKLOG P2 |
 | F037 | Circle to select | Personal | P2 | deferred | BACKLOG P2 |
-| F038 | Lasso filters | Launch | G2 | in progress | Editing `SelectionFilter`/`SelectionRules` (portable: passing — `SelectionTests.testRectHitTestUsesRotatedBoundsSkipsLockedAndAppliesFilters`, `testPolygonHitTestRequiresWholeBoundsInside`); App/Editor `SelectionController` (freehand + rectangle) not written |
-| F039 | Object editing (transform, recolor, copy, delete, align, capture) | Launch | G2 | in progress | Editing `transformObjects`, `SelectionAction` (portable: passing — `SelectionTests.testAvailableActionsMatrix`, `testClipboardPasteGivesFreshIDsAndOffsets`, `DocumentEditorTests.testTransformRules`); App/Editor handles not written; align and capture-as-image are BACKLOG P2 |
+| F038 | Lasso filters | Launch | G2 | simulator-tested | Editing `SelectionFilter`/`SelectionRules` (portable: passing — `SelectionTests.testRectHitTestUsesRotatedBoundsSkipsLockedAndAppliesFilters`, `testPolygonHitTestRequiresWholeBoundsInside`); App/Editor `SelectionController` (freehand and rectangle) picks ink through `PencilKitDrawing.strokeIndices(inside:)`/`(intersecting:)` — simulator `EditorInkEngineTests.testStrokeIndicesInsidePolygonRequiresTheWholeStroke` and `testStrokeIndicesIntersectingSelectsOnlyStrokesWithVisibleInkInTheRect`; the chosen filter persists (`EditorToolStateTests.testToolStateRoundTripsThroughItsStore`). The drag gestures themselves have no test |
+| F039 | Object editing (transform, recolor, copy, delete, align, capture) | Launch | G2 | implemented | Editing `transformObjects`, `SelectionAction` (portable: passing — `SelectionTests.testAvailableActionsMatrix`, `testClipboardPasteGivesFreshIDsAndOffsets`, `DocumentEditorTests.testTransformRules`); App/Editor `SelectionController` offers copy, cut, paste, duplicate, recolour, lock, stacking and delete with resize/rotate handles. Ink transform and recolour are simulator-covered (`EditorInkEngineTests.testTransformingAStrokeConcatenatesTheTransformAndKeepsTheEraseMask`, `testTransformingOneStrokeLeavesTheOthersAlone`, `testRecoloringKeepsPathTransformAndMaskAndOnlyChangesTheInkColour`); the object handle math (`SelectionController.resizeTransform`) has no test. Align and capture-as-image stay BACKLOG P2 |
 | F040 | Handwriting reflow | Advanced | P4 | deferred | BACKLOG P4 |
-| F041 | Undo and redo | Launch | G2 | in progress | Editing `DocumentEditor` grouped undo (portable: passing — `DocumentEditorTests.testA09GroupedMoveOfObjectsAndInkUndoesInOneStepAndRedoReapplies`, `testNestedGroupsFormOneRecordAndFailedCommandLeavesSnapshotUntouched`, `testRedoIsClearedByANewCommand`); shared `UndoManager` in App/Editor not written; A09 |
+| F041 | Undo and redo | Launch | G2 | implemented | Editing `DocumentEditor` grouped undo (portable: passing — `DocumentEditorTests.testA09GroupedMoveOfObjectsAndInkUndoesInOneStepAndRedoReapplies`, `testNestedGroupsFormOneRecordAndFailedCommandLeavesSnapshotUntouched`, `testRedoIsClearedByANewCommand`) and through a session (`LibraryServiceTests.testUndoRedoThroughSessionArePersisted`); App/Editor shares one `UndoManager` with every hosted `PKCanvasView` (`NotebookEditorViewController`), with no simulator test. A09 |
 
 ## Text and visual objects
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F042 | Text boxes | Launch | G2 | in progress | DocumentCore `TextContent` (size, weight, design, alignment, colour); App/Editor text editing not written |
+| F042 | Text boxes | Launch | G2 | implemented | DocumentCore `TextContent` (size, weight, design, alignment, colour); App/Editor `ObjectViews` edits text in place and `EditorToolState.textStyle` carries the defaults — the style survives a relaunch (`EditorToolStateTests.testToolStateRoundTripsThroughItsStore`) and typed text is findable (`EditorSearchTests.testFindsTypedTextTapeLabelsAndProblemMetadata`). The in-place editor is untested |
 | F043 | Full-page typing | Personal | P2 | deferred | BACKLOG P2 |
-| F044 | Images and camera | Launch | G2/G3 | in progress | DocumentCore `ImageContent` (crop, opacity); App/Interchange photo picker and scanner not written; A16 |
+| F044 | Images and camera | Launch | G2/G3 | implemented | DocumentCore `ImageContent` (crop, opacity); App/Editor `ImageInsertionController` (photo picker, camera, Files, crop) over App/Interchange `ImageImportBuilder`/`ImageIOInspector`. Simulator `InterchangeInspectorTests.testImageIOInspectorReadsMinimalPNGAndJPEGDimensions` covers the inspector only; the camera and limited-photos paths need a device (A16) |
 | F045 | Elements (reusable selections) | Personal | P2 | deferred | BACKLOG P2 |
 | F046 | Collection exchange | Personal | P2 | deferred | BACKLOG P2 |
 | F047 | Animated GIFs | Platform | P8 | deferred | BACKLOG P8 |
-| F048 | Object locking | Launch | G2 | in progress | Editing `setObjectsLocked`, locked objects excluded from hit tests and transforms (portable: passing — `DocumentEditorTests.testLockedObjectsRejectTransformRemoveAndUpdateButAcceptUnlock`, `SelectionTests.testRectHitTestUsesRotatedBoundsSkipsLockedAndAppliesFilters`); App/Editor not written |
-| F049 | Object stacking (front/back, groups) | Launch | G2 | in progress | Editing `bringToFront`/`sendToBack`/`reorderObject` within a band (portable: passing — `DocumentEditorTests.testAddRemoveUpdateReorderObjectsOnTheSingleArray`, `SelectionTests.testPointHitTestIsExactForRotationAndFollowsCompositingOrder`); App/Editor not written; grouping BACKLOG P2. Limitation: ink band is fixed (PRODUCT_SPEC §6) |
+| F048 | Object locking | Launch | G2 | implemented | Editing `setObjectsLocked`, locked objects excluded from hit tests and transforms (portable: passing — `DocumentEditorTests.testLockedObjectsRejectTransformRemoveAndUpdateButAcceptUnlock`, `SelectionTests.testRectHitTestUsesRotatedBoundsSkipsLockedAndAppliesFilters`); App/Editor Lock/Unlock menu items are written and untested |
+| F049 | Object stacking (front/back, groups) | Launch | G2 | implemented | Editing `bringToFront`/`sendToBack`/`reorderObject` within a band (portable: passing — `DocumentEditorTests.testAddRemoveUpdateReorderObjectsOnTheSingleArray`, `SelectionTests.testPointHitTestIsExactForRotationAndFollowsCompositingOrder`); App/Editor Bring to Front/Send to Back menu items are written and untested; grouping stays BACKLOG P2. Limitation: ink band is fixed (PRODUCT_SPEC §6) |
 | F050 | Sticky notes | Personal | P2 | deferred | BACKLOG P2 |
 
 ## Geometry and layer controls
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F051 | Shape recognition | Launch subset | G2 | in progress | Explicit shape tool over DocumentCore `ShapeContent` (line, arrow, rectangle, ellipse); App/Editor shape tool not written. Stroke-to-shape recognition is BACKLOG P2 |
+| F051 | Shape recognition | Launch subset | G2 | implemented | Explicit shape tool over DocumentCore `ShapeContent` (line, arrow, rectangle, ellipse): App/Editor `SelectionController.creationShape` builds the shape from the overlay drag. Simulator covers the tool state only (`EditorToolStateTests.testSelectingRemembersTheLastInkAndShapeKind`, `testToolCategoriesDriveCanvasInteraction`); shape creation itself has no test. Stroke-to-shape recognition stays BACKLOG P2 |
 | F052 | Draw and hold | Personal | P2 | deferred | BACKLOG P2 |
 | F053 | Ruler | Personal | P2 | deferred | BACKLOG P2 |
 | F054 | Connectors | Personal | P2 | deferred | BACKLOG P2 |
@@ -132,10 +142,10 @@ which portable tests pass and what is still missing. Only rows with no app part
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F057 | Library search | Launch | G4 | in progress | Catalog FTS5 (portable: passing — `CatalogDatabaseTests.testRebuildFromSnapshotsThenQuery`, `testSearchDistinguishesNoMatchesFromNotYetIndexed`, `testRankingOrderTitleTypedPDFTextRecognized`, `FTSQueryTests`); Workspace `search(_:scope:)` and App/Search not written |
-| F058 | Document search | Launch | G4 | in progress | Workspace `SearchScope.document` and App/Editor find not written; same Catalog tests |
-| F059 | Handwriting conversion | Launch best effort | G4 | in progress | App/Interchange Vision `TextRecognizer` with editable preview, not written; stale-record invalidation (portable: passing — `CatalogDatabaseTests.testEditingPageRevisionDropsStaleRecognizedRecordsButKeepsTyped`); subject to the A15 corpus in VALIDATION. Not a parity claim |
-| F060 | Recognition languages | Launch English | G4 | in progress | English only; `SearchRecord.language`; App/Interchange recognizer not written |
+| F057 | Library search | Launch | G4 | implemented | Catalog FTS5 (portable: passing — `CatalogDatabaseTests.testRebuildFromSnapshotsThenQuery`, `testSearchDistinguishesNoMatchesFromNotYetIndexed`, `testRankingOrderTitleTypedPDFTextRecognized`, `FTSQueryTests`) and Workspace `search(_:scope:)` (`LibraryServiceTests.testSearchTypedHitsRecognizedRecordsInvalidationAndScopes`); App/Search `SearchView`/`SearchViewModel` (library, folder and notebook scopes, index-state rows, jump to the hit) is written and has no simulator test |
+| F058 | Document search | Launch | G4 | simulator-tested | App/Editor `NotebookSearch` answers from the open snapshot and the page's source PDF without waiting for the index: simulator `EditorSearchTests.testFindsTypedTextTapeLabelsAndProblemMetadata`, `testSearchIgnoresShortQueriesAndNonTextObjects`, `testSearchIsCaseAndDiacriticInsensitive`, `testSearchRespectsItsLimit`, `testSnippetCentresOnTheMatchAndMarksTruncation`. Catalog-backed `SearchScope.document` is portable (`LibraryServiceTests.testSearchTypedHitsRecognizedRecordsInvalidationAndScopes`) |
+| F059 | Handwriting conversion | Launch best effort | G4 | in progress | Recognition **for search** is built and measured: App/Interchange `VisionTextRecognizer` and `RecognitionQueue` (debounced, one page at a time, pausable) — simulator `InterchangeOCRTests.testCleanPrintedTextIsRecognizedAccurately` (character error rate < 0.15 on clean printed text), `testCorpusErrorRatesAreMeasuredAndReported`, `testRecognizedLinesCarryPageSpaceBoundsInsideThePage`, `testRecognitionReturnsNothingForABlankPageRatherThanFailing`, `testErrorRateMathIsCorrect`; stale-record invalidation portable (`CatalogDatabaseTests.testEditingPageRevisionDropsStaleRecognizedRecordsButKeepsTyped`). The editable **conversion** preview promised in PRODUCT_SPEC §6 is not written — no screen turns recognized text into editable text. The corpus is synthetic printed text, not handwriting: A15 still needs a student-written corpus on a device. Not a parity claim |
+| F060 | Recognition languages | Launch English | G4 | simulator-tested | English only: App/Interchange `VisionTextRecognizer.recognitionLanguages = ["en-US"]` with language correction, writing `SearchRecord.language`. Simulator: `InterchangeOCRTests.testCleanPrintedTextIsRecognizedAccurately`, `testCorpusErrorRatesAreMeasuredAndReported` (English corpus, measured error rates) |
 | F061 | Handwriting spelling | Advanced | P4 | deferred | BACKLOG P4 |
 | F062 | Handwriting appearance (reflow, beautify) | Advanced | P4 | deferred | BACKLOG P4 |
 
@@ -143,15 +153,15 @@ which portable tests pass and what is still missing. Only rows with no app part
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F063 | PDF and image import | Launch | G3 | in progress | Workspace `importFiles`/`ImportDestination` and App/Interchange PDFKit inspector not written; fixtures rotated/cropped/malformed/encrypted/image-only/long (portable: passing — `PDFFixtureTests.testInspectorRejectsMalformedFixturesWithTheRightErrors`, `testInspectorReportsEncryptMarker`, `testInspectorReadsImageOnlyAndLongMixedFixtures`, `ImageFixtureTests`) |
+| F063 | PDF and image import | Launch | G3 | simulator-tested | Workspace `importFiles`/`ImportDestination` (portable: passing — `LibraryServiceTests.testImportAlignmentFixturesMatchesSidecarGeometry`, `testImportLong300PagePDFCreatesOnePagePerPDFPage`, `testImportImageCreatesLetterWidthPageKeepingAspect`, `testMalformedAndEncryptedPDFsFailWithoutCreatingADocument`, `testImportCancellationLeavesLibraryUnchanged`; `PDFFixtureTests.testInspectorRejectsMalformedFixturesWithTheRightErrors`, `testInspectorReportsEncryptMarker`, `testInspectorReadsImageOnlyAndLongMixedFixtures`, `ImageFixtureTests`). App/Interchange `PDFKitInspector`/`ImageIOInspector` agree with the portable inspectors on the same fixtures — simulator `InterchangeInspectorTests.testPDFKitInspectorReportsTheSameBoxesAndRotationAsTheMinimalInspector`, `testPDFKitInspectorReadsOutlineTitlesTextPresenceAndImageOnlyPages`, `testPDFKitInspectorRejectsEncryptedGarbageAndOversizedFiles`, `testImageIOInspectorReadsMinimalPNGAndJPEGDimensions`. The Files picker and `ImportDestinationSheet` are untested |
 | F064 | Office import | Platform | P8 | deferred | BACKLOG P8 |
-| F065 | Native import | Own format only | G3 | in progress | Archive `ArchiveReader` (portable: passing — `ArchiveRoundTripTests`, 9 tests); Workspace import path and App/Interchange picker not written; no third-party notebook decoder (see `MIGRATION_FROM_GOODNOTES.md`) |
-| F066 | Share and drag import | Launch | G3 | in progress | App/Interchange not written: Files picker, drag and drop, open-in via `CFBundleDocumentTypes` (declared in `App/project.yml`); security-scoped copy into `Staging/` (`LibraryStoreTests.testOpenCreatesLayoutAndClearsStaging` covers staging cleanup) |
+| F065 | Native import | Own format only | G3 | implemented | Archive `ArchiveReader` (portable: passing — `ArchiveRoundTripTests`, 9 tests) and Workspace restore (`LibraryServiceTests.testExportArchiveAndRestoreAsCopyIsEqualModuloIdentifiers`); App/Library accepts `dev.courseleaf.archive` in its Files picker (`ImportSupport.importableTypes`) with no simulator test. No third-party notebook decoder (see `MIGRATION_FROM_GOODNOTES.md`) |
+| F066 | Share and drag import | Launch | G3 | in progress | The Files picker is wired end to end: `LibraryContentView.fileImporter` → `ImportSupport.requests(forPickedURLs:)` → `SecurityScopedFileAccess.prepareForImport` into `Staging/` (staging cleanup portable: passing — `LibraryStoreTests.testOpenCreatesLayoutAndClearsStaging`). Drag and drop and "Open in" are **not** wired: `ImportSupport.loadRequests(from:stagingDirectory:)` and `request(forOpenedURL:)` exist but no view calls `onDrop` or `onOpenURL`, although `CFBundleDocumentTypes` is declared in `App/project.yml` |
 | F067 | Email import | Platform | P8 | deferred | BACKLOG P8 |
-| F068 | Scan documents | Launch | G3 | in progress | App/Interchange VisionKit document camera not written; permission-denied path (A16) |
-| F069 | PDF export | Launch | G3 | in progress | PageGeometry `ExportGeometry` (portable: passing — `PageMappingTests.testAlignmentFixturesAgreeWithSidecarWithin1e9`, `CanvasAndExportGeometryTests`); App/Interchange PDF renderer not written; A05 on simulator/device |
-| F070 | Image export and printing | Launch | G3 | in progress | DocumentCore `ExportFormat.png/.jpeg`; App/Interchange image renderer and `UIPrintInteractionController` not written |
-| F071 | Native export and backup | Own format at launch | G1/G3 | in progress | Archive `DocumentArchiveWriter`/`LibraryArchiveWriter` (portable: passing — `ArchiveRoundTripTests.testDocumentRoundTripRestoresAnEqualSnapshotAndAssets` (A13), `ArchiveRejectionTests`, 40 tests (A14), `ZipTests`); Workspace `exportArchive` and App/Export sheet not written |
+| F068 | Scan documents | Launch | G3 | implemented | App/Interchange `DocumentScannerView` wraps `VNDocumentCameraViewController` and shows an explicit placeholder when scanning is unsupported or the camera is denied (`cameraAuthorization`). A simulator has no document camera, so only a device closes this and the permission path (A16) |
+| F069 | PDF export | Launch | G3 | simulator-tested | App/Interchange `PDFExporter`/`PageCompositor` over PageGeometry `ExportGeometry`. Simulator: `InterchangeExportTests.testExportPlacesAnObjectWithinOnePointOfItsPageRect` (every edge within 1 pt of page space, A05), `testExportKeepsSourcePDFSquareAtItsExpectedPageRectForEveryRotationAndCrop` (A04 rotations and crop origins against the fixture sidecar), `testExportKeepsSourcePDFTextSearchable` (A12), `testExportingASubsetOfPagesKeepsOrderAndCount`, `testInkIsCompositedAtItsPageCoordinates`. Portable: passing — `PageMappingTests.testAlignmentFixturesAgreeWithSidecarWithin1e9`, `CanvasAndExportGeometryTests` |
+| F070 | Image export and printing | Launch | G3 | implemented | DocumentCore `ExportFormat.png/.jpeg`; App/Interchange `ImageExporter` (one image per page at 144 dpi) and `PrintCoordinator` (`UIPrintInteractionController` over the same renderer), both offered by App/Export `ExportSheet`. No simulator test names either — only `PDFExporter` is covered (F069) |
+| F071 | Native export and backup | Own format at launch | G1/G3 | implemented | Archive `DocumentArchiveWriter`/`LibraryArchiveWriter` (portable: passing — `ArchiveRoundTripTests.testDocumentRoundTripRestoresAnEqualSnapshotAndAssets` (A13), `ArchiveRejectionTests`, 40 tests (A14), `ZipTests`) and Workspace `exportArchive` (`LibraryServiceTests.testExportArchiveAndRestoreAsCopyIsEqualModuloIdentifiers`); App/Export `ExportSheet` offers the archive and App/Settings `StorageSettingsView` the library backup, neither with a simulator test |
 | F072 | Batch folder export | Personal | P1 | deferred | BACKLOG P1 |
 | F073 | Cloud PDF writeback | Platform | P8 | deferred | BACKLOG P8 |
 
@@ -171,7 +181,7 @@ which portable tests pass and what is still missing. Only rows with no app part
 
 | ID | Capability | Research target | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|---|
-| F081 | Tape reveal | Launch | G4 | in progress | DocumentCore `TapeContent`; Editing `setTapeRevealed` (portable: passing — `DocumentEditorTests.testTapeRevealRecordsEventsOnLinkedReviewItems`); `TapeExportPolicy` bands (`PageMappingTests.testTapePolicyAndCompositingBands`); App/Editor tape tool not written |
+| F081 | Tape reveal | Launch | G4 | implemented | DocumentCore `TapeContent`; Editing `setTapeRevealed` (portable: passing — `DocumentEditorTests.testTapeRevealRecordsEventsOnLinkedReviewItems`); App/Editor tape tool, tap to reveal and the Reveal/Hide menu items are written and untested. The export half is simulator-covered: `InterchangeExportTests.testTapeExportPolicyDecidesWhetherAnswersAreCovered` over every `TapeExportPolicy` (bands portable — `PageMappingTests.testTapePolicyAndCompositingBands`) |
 | F082 | Tape styling | Personal | P2 | deferred | BACKLOG P2 (solid colour only at launch) |
 | F083 | Flashcards | Personal | P3 | deferred | BACKLOG P3 |
 | F084 | Spaced repetition | Personal | P3 | deferred | BACKLOG P3. Launch review queue is manual (`ReviewRules`), not a scheduler |
@@ -217,7 +227,7 @@ which portable tests pass and what is still missing. Only rows with no app part
 |---|---|---|---|---|---|
 | F105 | Apple (iCloud) sync | Personal | P1 | deferred | BACKLOG P1 |
 | F106 | Cross-platform cloud library | Platform | P7 | deferred | BACKLOG P7 |
-| F107 | Backup management | Launch manual; Personal auto | G1/G3 manual; P1 automatic | in progress | Archive `LibraryArchiveWriter` (portable: passing — `ArchiveRoundTripTests.testLibraryArchiveWithSeveralDocumentsRoundTrips`, `testLibraryWriterRefusesDuplicateDocumentsAndLeavesNoFile`); Workspace `backupLibrary`/`restoreLibrary` (`RestoreMode.addCopies` default) and App/Settings not written. Automatic backup is BACKLOG P1 |
+| F107 | Backup management | Launch manual; Personal auto | G1/G3 manual; P1 automatic | implemented | Archive `LibraryArchiveWriter` (portable: passing — `ArchiveRoundTripTests.testLibraryArchiveWithSeveralDocumentsRoundTrips`, `testLibraryWriterRefusesDuplicateDocumentsAndLeavesNoFile`) and Workspace `backupLibrary`/`restoreLibrary` with both `RestoreMode`s (`LibraryServiceTests.testBackupIsValidatedAndRestoresInBothModes`); App/Settings `StorageSettingsView` backup and restore actions are written and untested. Automatic backup stays BACKLOG P1 |
 | F108 | Document lock (password/biometrics) | Personal | P1 | deferred | BACKLOG P1 |
 | F109 | Marketplace | Separate marketplace | Separate | deferred | Separate product decision; no card in BACKLOG beyond the P8 note |
 | F110 | Organizational tools (SSO, admin, billing) | Separate product | Separate | deferred | Separate product decision |
@@ -228,19 +238,29 @@ which portable tests pass and what is still missing. Only rows with no app part
 
 | ID | Capability | Milestone | Status | Owner / evidence |
 |---|---|---|---|---|
-| C001 | Problem Pages (title, source, Given/Find, result region, status) | G4 | in progress | DocumentCore `ProblemMetadata`; Editing `setProblem`/`setProblemStatus` (portable: passing — `DocumentEditorTests.testProblemMetadataAndReviewCommandsAreUndoableAndInTheSnapshot`, `ReviewRulesTests.testCycleStatusVisitsEveryStatusInOrder`; survives archive round trip `ArchiveRoundTripTests`); App/ProblemInspector not written |
-| C002 | Course review queue (page/region, prompt, reveal, mark reviewed, jump back) | G4 | in progress | DocumentCore `ReviewItem`; Editing `ReviewRules` (portable: passing — `ReviewRulesTests`, 4 tests; `DocumentEditorTests.testReviewItemsOfDeletedPagesAreHiddenUntilRestore`); Catalog queue (`CatalogDatabaseTests.testReviewQueuePerCourseSubtreeAndUnfiled`); Workspace `reviewQueue`/`markReviewed`/`reopenReview` and App/Review not written |
-| C003 | Durable commit protocol and recovery (LKG manifest, page recovery from revisions, save coalescing) — portable part | G1 | unit-tested | Persistence `DocumentPackageStore`, `SaveScheduler`; `DocumentPackageStoreTests.testA07EveryFailingStepLeavesPreviousManifestReadable`, `testA08CrashAtEveryStepReopensToPreOrPostState`, `testInvalidManifestFallsBackToLastKnownGood`, `testMissingCurrentPageFileIsRecoveredFromEarlierRevision`, `testUnsupportedSchemaIsAnErrorNotAnEmptyDocument`, `SaveSchedulerTests` (5 tests); run recorded in VALIDATION at `3b105a5`. Disk latency and force-quit behaviour remain device gates (A07/A08) |
-| C004 | Rebuildable catalog (delete and rebuild yields identical results) — portable part | G4 | unit-tested | Catalog `CatalogDatabase`; `CatalogDatabaseTests.testDeletingTheCatalogAndRebuildingYieldsIdenticalResults`, `testRebuildIsAtomic`, `testInMemoryAndOnDiskProduceIdenticalResults`; run recorded in VALIDATION at `3b105a5`. The Settings "Rebuild search index" action is C005 |
-| C005 | Save status UI, session wiring and Settings maintenance actions (Workspace `DocumentSession`, `SaveStatus` display, rebuild index, storage report) | G1/G4 | in progress | Workspace `LibraryService`/`DocumentSession` and App/Editor, App/Settings not written; `StorageReport` counting (portable: passing — `LibraryStoreTests.testStorageReportCountsBytesPerCategory`) |
+| C001 | Problem Pages (title, source, Given/Find, result region, status) | G4 | implemented | DocumentCore `ProblemMetadata`; Editing `setProblem`/`setProblemStatus` (portable: passing — `DocumentEditorTests.testProblemMetadataAndReviewCommandsAreUndoableAndInTheSnapshot`, `ReviewRulesTests.testCycleStatusVisitsEveryStatusInOrder`; survives the archive round trip, `ArchiveRoundTripTests`); App/ProblemInspector `ProblemInspectorView` edits all five fields, the result region and the page's review items. The screen has no test; problem metadata is findable in the editor (`EditorSearchTests.testFindsTypedTextTapeLabelsAndProblemMetadata`) |
+| C002 | Course review queue (page/region, prompt, reveal, mark reviewed, jump back) | G4 | implemented | DocumentCore `ReviewItem`; Editing `ReviewRules` (portable: passing — `ReviewRulesTests`, 4 tests; `DocumentEditorTests.testReviewItemsOfDeletedPagesAreHiddenUntilRestore`); Catalog queue (`CatalogDatabaseTests.testReviewQueuePerCourseSubtreeAndUnfiled`); Workspace `reviewQueue`/`markReviewed`/`reopenReview` (`LibraryServiceTests.testReviewQueuePerCourseAndUnfiledWithMarkAndReopen`); App/Review `ReviewQueueView`/`ReviewDetailView`/`ReviewQueueViewModel` are written and have no simulator test |
+| C003 | Durable commit protocol and recovery (LKG manifest, page recovery from revisions, save coalescing) — portable part | G1 | unit-tested | Persistence `DocumentPackageStore`, `SaveScheduler`; `DocumentPackageStoreTests.testA07EveryFailingStepLeavesPreviousManifestReadable`, `testA08CrashAtEveryStepReopensToPreOrPostState`, `testInvalidManifestFallsBackToLastKnownGood`, `testMissingCurrentPageFileIsRecoveredFromEarlierRevision`, `testUnsupportedSchemaIsAnErrorNotAnEmptyDocument`, `SaveSchedulerTests` (5 tests); run recorded in VALIDATION (219 Linux tests at `2de9721`). Disk latency and force-quit behaviour remain device gates (A07/A08) and no device exists |
+| C004 | Rebuildable catalog (delete and rebuild yields identical results) — portable part | G4 | unit-tested | Catalog `CatalogDatabase`; `CatalogDatabaseTests.testDeletingTheCatalogAndRebuildingYieldsIdenticalResults`, `testRebuildIsAtomic`, `testInMemoryAndOnDiskProduceIdenticalResults`, and through the service `LibraryServiceTests.testCatalogDeletedThenRebuiltAnswersIdenticalQueries`; run recorded in VALIDATION (219 Linux tests at `2de9721`). The Settings "Rebuild search index" action is C005 |
+| C005 | Save status UI, session wiring and Settings maintenance actions (Workspace `DocumentSession`, `SaveStatus` display, rebuild index, storage report) | G1/G4 | implemented | Workspace `LibraryService`/`DocumentSession` (portable: passing — `LibraryServiceTests.testCreateEditFlushCloseReopenRestoresEqualSnapshot`, `testSaveStatusGoesUnsavedSavingSavedOnlyAfterDurableCommitAndRecordsLatency`, `testCatalogDeletedThenRebuiltAnswersIdenticalQueries`; `LibraryStoreTests.testStorageReportCountsBytesPerCategory`). App: `AppEnvironment` opens the library and turns service failures into alerts, `SaveStatusText` separates every state — simulator `AppShellTests.testEnvironmentOpensALibraryAtATemporaryRoot`, `testEnvironmentReportsServiceFailuresAsAnAlertInsteadOfCrashing`, `testSaveStatusTextSeparatesEveryState`, `testWorkspaceErrorsAreExplainedInPlainEnglish`. App/Settings `StorageSettingsView` (rebuild index, storage report, empty trash) has no test |
 
-## Counts (2026-09-12, commit `3b105a5`)
+## Counts (2026-09-12, commit `cb91777`)
 
-Benchmark rows: 112. **In progress** (launch scope G1–G4): 44 — F001, F003–F012
-(F009 built-in part only), F014, F015, F018, F020, F022, F023, F025, F026, F028,
-F029, F032, F035, F038, F039, F041, F042, F044, F048, F049, F051, F057–F060, F063,
-F065, F066, F068–F071, F081, F107 (manual part only). **Deferred** with a backlog
-card or a separate product decision: 67. **Retired:** 1 (F112). Implemented,
-simulator-tested or device-tested benchmark rows: 0 — statuses move only with
-recorded evidence. Courseleaf-original rows: C003 and C004 `unit-tested` (portable
-logic only, 3b105a5); C001, C002, C005 `in progress`.
+Benchmark rows: 112.
+
+- **`simulator-tested`** — 17: F001, F008, F010, F014, F020, F022, F023, F025,
+  F026, F028, F029, F032, F038, F058, F060, F063, F069. Each names a case from the
+  63-test iPad simulator run.
+- **`implemented`** — 24: F003, F004, F005, F006, F009, F011, F012, F015, F018,
+  F035, F039, F041, F042, F044, F048, F049, F051, F057, F065, F068, F070, F071,
+  F081, F107. The code exists and compiles for the simulator; the portable half is
+  covered by Linux tests, the screen is not covered by any test.
+- **`in progress`** — 3: F007 (no page copy or move between notebooks), F059 (no
+  editable conversion preview), F066 (drag and drop and "Open in" not wired).
+- **`deferred`** with a backlog card or a separate product decision: 67.
+- **`retired`:** 1 (F112).
+- **`device-tested`:** 0, and it stays 0 until a physical iPad and an Apple Pencil
+  exist for this project.
+
+Courseleaf-original rows: C003 and C004 `unit-tested` (portable logic only);
+C001, C002 and C005 `implemented`.

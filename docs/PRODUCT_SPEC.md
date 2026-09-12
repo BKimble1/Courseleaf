@@ -46,7 +46,7 @@ course-level **review queue** and revisited in place.
 - Item actions: open, rename, move, duplicate, favourite, change cover, delete (to
   Trash). Folder delete moves the whole subtree to Trash. Trash lists documents and
   folders with restore, delete permanently and empty.
-- Import button and drag-and-drop accept PDF, PNG/JPEG and `.courseleaf` archives
+- Import button accepts PDF, PNG/JPEG and `.courseleaf` archives through the Files picker (drag-and-drop and "Open in" are not wired at launch; see F066)
   (section 3.6). Search field opens the Search screen scoped to the current folder.
 - A document whose package schema is newer than the app shows as read-only
   "Needs a newer version of the app"; it is never opened as empty.
@@ -127,7 +127,8 @@ Opened from the editor for the current page.
   **Courseleaf archive** (`.courseleaf`, full editing fidelity). Tape policy per
   export: as shown, cover all, or reveal all. Progress and cancel; errors named.
 - Print through the system print panel using the same PDF renderer.
-- Import PDF, PNG/JPEG or `.courseleaf` from Files, drag-and-drop or "Open in".
+- Import PDF, PNG/JPEG or `.courseleaf` from Files. Drag-and-drop and "Open in"
+  are **not** wired at launch, though the type handling for them exists (F066).
   Destination: new notebook (in the current folder) or insert before/after a chosen
   page of an existing notebook. Files are copied into staging before the external
   access ends; a cancelled or failed import creates nothing. Encrypted, corrupt,
@@ -198,10 +199,13 @@ Opened from the editor for the current page.
   blending as on screen.
 - **Ink is rasterized** in every export (PDF, PNG, JPEG) at the chosen scale
   (default 2× page points, 144 dpi). Native archives keep ink as engine data.
-- **Handwriting search and conversion** is best-effort on-device OCR (Vision,
-  English), subject to the evaluation corpus in `docs/VALIDATION.md` (A15). Results
-  carry no precision claim; conversion shows an editable preview and never replaces
-  ink. Math is not recognized.
+- **Handwriting search is best-effort on-device OCR** (Vision, English), subject
+  to the evaluation corpus in `docs/VALIDATION.md` (A15). Results carry no
+  precision claim and recognized text never replaces ink. Math is not recognized.
+- **Handwriting *conversion* to a text object is not in the launch build.**
+  Recognition feeds the search index only; there is no editable conversion
+  preview yet. The preview is the design for conversion when it ships, and is
+  tracked in `docs/FEATURE_REGISTER.md` (F059).
 - **Review queue is manual**, not spaced repetition: no scheduling, due dates or
   scores.
 - **Migration from other notebook apps is via exported PDFs only**
