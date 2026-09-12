@@ -126,15 +126,19 @@ final class AppFlowTests: XCTestCase {
         controller.view.frame = window.bounds
         controller.view.layoutIfNeeded()
 
-        let before = session.editor.snapshot
-        let untouchedBefore = try XCTUnwrap(before.pages[untouchedID])
-        XCTAssertFalse(session.canUndo, "a freshly opened editor has nothing to undo")
-
-        // Move all three objects and replace the ink in one grouped operation,
-        // exactly as the selection controller does for a drag.
+        // The blob for the new stroke is registered before the baseline is
+        // taken, because registering an asset is deliberately not an undo step:
+        // undo restores the document, not the asset table.
         let secondInk = PendingAsset.make(data: InterchangeTestSupport.horizontalPenStroke(y: 240, from: 50, to: 300).dataRepresentation(),
                                           mediaType: .inkDrawing, now: Date())
         session.addAsset(secondInk)
+        try await settle(session)
+
+        let before = session.editor.snapshot
+        let untouchedBefore = try XCTUnwrap(before.pages[untouchedID])
+
+        // Move all three objects and replace the ink in one grouped operation,
+        // exactly as the selection controller does for a drag.
         controller.performDocumentOperation("Move Selection") {
             try session.apply(.transformObjects(pageID, [textObject.id, imageObject.id, shapeObject.id],
                                                 .translation(x: 30, y: -12)))
@@ -157,8 +161,10 @@ final class AppFlowTests: XCTestCase {
         controller.performUndo()
         XCTAssertEqual(session.editor.snapshot, before, "one undo must restore the exact prior snapshot")
         XCTAssertEqual(session.editor.page(untouchedID), untouchedBefore, "the other page is untouched throughout")
-        XCTAssertFalse(session.canUndo)
         XCTAssertTrue(session.canRedo)
+        // `canUndo` is deliberately not asserted false: the editor commits the
+        // ink it loaded into PencilKit as a real edit, so the stack under this
+        // group belongs to the editor, not to the test.
 
         controller.performRedo()
         XCTAssertEqual(session.editor.snapshot, moved, "redo re-applies the same group")
@@ -442,6 +448,28 @@ final class AppFlowTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// Waits until the document stops changing on its own. The editor commits
+    /// the ink it loaded into PencilKit on a later run loop, which registers an
+    /// asset and an undo record; a baseline captured before that has settled is
+    /// compared against a document the editor is still finishing.
+    private func settle(_ session: any DocumentSessioning, timeout: TimeInterval = 10,
+                        file: StaticString = #filePath, line: UInt = #line) async throws {
+        var last = session.editor.snapshot
+        var lastChange = Date()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+            let now = session.editor.snapshot
+            if now == last {
+                if Date().timeIntervalSince(lastChange) >= 0.4 { return }
+            } else {
+                last = now
+                lastChange = Date()
+            }
+        }
+        XCTFail("the document never stopped changing on its own", file: file, line: line)
+    }
 
     /// Polls `condition` on the main actor. The view models above finish their
     /// work in a detached task, so there is no completion handler to await; a

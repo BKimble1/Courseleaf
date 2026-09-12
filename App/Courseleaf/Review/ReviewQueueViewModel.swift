@@ -32,8 +32,11 @@ final class ReviewQueueViewModel {
         courses = (manifest?.folders ?? []).filter(\.isCourse).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+        // Ask for reviewed items too and filter here, so toggling `showsReviewed`
+        // is instant and `reopen` has something to act on. `pendingCount` and
+        // `visibleEntries` both filter by state, so the counts stay right.
         entries = await env.perform("The review queue could not be read") {
-            try await env.library.reviewQueue(courseID: selectedCourseID)
+            try await env.library.reviewQueue(courseID: selectedCourseID, includeReviewed: true)
         } ?? []
     }
 
