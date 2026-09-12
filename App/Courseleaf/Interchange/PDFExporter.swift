@@ -87,10 +87,13 @@ struct PDFExporter: Sendable {
     static func selectedPages(_ snapshot: DocumentSnapshot, _ ids: [PageID]?) throws -> [Page] {
         let pages: [Page]
         if let ids {
-            pages = try ids.map { id in
-                guard let page = snapshot.pages[id], snapshot.document.pageIDs.contains(id) else { throw ExportError.pageNotFound(id) }
-                return page
+            // Validate every requested id, then emit in document order: the
+            // caller's ordering is a selection, not a page order.
+            for id in ids where snapshot.pages[id] == nil || !snapshot.document.pageIDs.contains(id) {
+                throw ExportError.pageNotFound(id)
             }
+            let wanted = Set(ids)
+            pages = snapshot.document.pageIDs.filter { wanted.contains($0) }.compactMap { snapshot.pages[$0] }
         } else {
             pages = snapshot.orderedPages
         }

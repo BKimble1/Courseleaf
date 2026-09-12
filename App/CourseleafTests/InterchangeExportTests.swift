@@ -71,7 +71,7 @@ final class InterchangeExportTests: XCTestCase {
 
     func testExportKeepsSourcePDFSquareAtItsExpectedPageRectForEveryRotationAndCrop() async throws {
         for expectation in FixtureCatalog.alignmentExpectations {
-            let bytes = try FixtureCatalog.data(named: expectation.file)
+            let bytes = try FixtureCatalog.data(named: expectation.file.replacingOccurrences(of: ".pdf", with: ""))
             let asset = PendingAsset.make(data: bytes, mediaType: .pdf, originalFileName: expectation.file,
                                           pageCount: 1, now: InterchangeTestSupport.fixedDate)
             let rotation = try XCTUnwrap(PageRotation(degrees: expectation.rotation))
@@ -104,7 +104,7 @@ final class InterchangeExportTests: XCTestCase {
     // MARK: A12 — source text survives export
 
     func testExportKeepsSourcePDFTextSearchable() async throws {
-        let bytes = try FixtureCatalog.data(named: "text-and-outline.pdf")
+        let bytes = try FixtureCatalog.data(named: "text-and-outline")
         let asset = PendingAsset.make(data: bytes, mediaType: .pdf, originalFileName: "text-and-outline.pdf",
                                       pageCount: 3, now: InterchangeTestSupport.fixedDate)
         let pages = (0..<3).map { index -> Page in

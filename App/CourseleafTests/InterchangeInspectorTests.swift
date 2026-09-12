@@ -58,7 +58,9 @@ final class InterchangeInspectorTests: XCTestCase {
 
         let long = try inspector.inspect(fileAt: write(MinimalPDFWriter.write(pages: FixtureCatalog.longMixedPages(count: 300)), "long.pdf"))
         XCTAssertEqual(long.pageCount, 300)
-        XCTAssertEqual(long.pages[1].mediaBox.size, PageSize(width: 595.276, height: 841.89))
+        // A4 in points is not exactly representable; compare with a tolerance.
+        XCTAssertEqual(long.pages[1].mediaBox.size.width, 595.276, accuracy: 0.001)
+        XCTAssertEqual(long.pages[1].mediaBox.size.height, 841.89, accuracy: 0.001)
         XCTAssertEqual(long.pages[2].mediaBox.size, PageSize(width: 792, height: 612))
     }
 
