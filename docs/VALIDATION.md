@@ -82,12 +82,28 @@ available in this project's remote sessions.
 | 2026-09-12 | `453373a` | `core-linux` | success |
 | 2026-09-12 | `1f316ea` | `app-ios-simulator`, step "Core package builds with Xcode toolchain (macOS)" | success on Xcode 26.3 (17C529) |
 | 2026-09-12 | `453373a` | `app-ios-simulator`, package targets | DocumentCore, PageGeometry, Persistence, Catalog, CSQLite, Editing, Archive, Fixtures and Workspace all compiled for `arm64-apple-ios-simulator` (iOS 26.2 SDK) |
+| 2026-09-12 | `7627793` | `app-ios-simulator`, full job ([run 34694155083](https://github.com/BKimble1/QuickWrite/actions/runs/34694155083)) | **app built and `CourseleafTests` ran on an iPad simulator: `totalTestCount` 63, 0 failed, 0 skipped.** Per suite: AppShellTests 17, EditorInkEngineTests 6, EditorLayoutTests, EditorSearchTests, EditorToolStateTests, InterchangeInspectorTests, InterchangeExportTests, InterchangeOCRTests |
 
-The app target itself had not compiled at `453373a`; the errors it surfaced are
-recorded in the repository history (missing Workspace product, a system-library
-target Xcode cannot resolve, a caseless enum with a raw type, four editor type
-errors). No simulator **test run** has completed yet, so no `sim` row in the
-A01–A20 table has moved off `pending`.
+Getting there took eight real defects, each found from compiler or test-runner
+output and fixed in the history: a missing Workspace product; a system-library
+target Xcode cannot resolve inside a project; a caseless enum declaring a raw
+type; four editor type errors; a PencilKit width API that does not exist under
+either name we tried; `XCTUnwrap` given an `await` (an autoclosure cannot contain
+one), which stopped the test bundle compiling; and a closure capturing `self`
+before initialization.
+
+Two of those were false-green defects in the harness itself and are worth
+recording, because they made the job report success while proving nothing:
+
+1. `Scripts/build-ios.sh` ended its `xcodebuild` pipeline with `|| true`, which
+   resets `PIPESTATUS[0]` to zero. Three runs reported success while the app had
+   failed to compile.
+2. The zero-test guard added to catch that piped its output into `tee`, so its
+   own non-zero exit was discarded too.
+
+Both are fixed, and the summary step now **fails** the job when the result bundle
+reports zero tests. A green `app-ios-simulator` job therefore now means the app
+built, the bundle ran, and at least one test executed.
 
 ## Performance targets
 
@@ -112,9 +128,10 @@ measurement and agree a revised product limit here rather than adjusting the tes
 
 ## Unresolved failures
 
-No portable test is failing: the `2de9721` run passed 219/219 on Linux, and the
-same suite passes in CI. No simulator test run and no device run has completed,
-so every `sim` and `device` row above is open, not passed. The simulator suite
-(58 test functions under `App/CourseleafTests`) has been written but has never
-executed; treat it as unverified until a CI `app-ios-simulator` run reports it
-here.
+No test is failing. Linux passes 219/219 in the session and in CI. The iPad
+simulator ran 63 tests with 0 failures at `7627793`.
+
+Device rows remain open: no physical iPad or Apple Pencil exists in this
+environment, so A02, A03, A06, A16, A17 and A19 have no evidence and must not be
+marked otherwise. Simulator rows may now cite the run above where a named test
+actually covers them; a row is only moved when the test that covers it is named.
