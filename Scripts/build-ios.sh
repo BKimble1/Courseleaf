@@ -38,10 +38,16 @@ RESULT="${RESULT_BUNDLE:-$PWD/../Build/CourseleafTests.xcresult}"
 rm -rf "$RESULT"
 set +e
 set -o pipefail
+# Test timeouts are enabled so a single hanging test fails with its own name
+# after a few minutes, instead of running the job into its 60-minute limit and
+# leaving no evidence of which test hung.
 xcodebuild test \
   -project Courseleaf.xcodeproj -scheme Courseleaf \
   -destination "$DESTINATION" \
   -resultBundlePath "$RESULT" \
+  -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 180 \
+  -maximum-test-execution-time-allowance 600 \
   CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
   ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$PWD/../Build/xcodebuild-test.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
 status=${PIPESTATUS[0]}

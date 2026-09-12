@@ -96,6 +96,7 @@ final class AppFlowTests: XCTestCase {
             title: "Mechanics", folderID: nil, template: .preset(.lined), pageSize: .letter,
             cover: .default, pageCount: 2)
         let session = try await environment.session(for: documentID)
+        environment.setRecognitionPaused(true)
         let pageID = session.editor.document.pageIDs[0]
         let untouchedID = session.editor.document.pageIDs[1]
 
@@ -114,12 +115,15 @@ final class AppFlowTests: XCTestCase {
         try session.apply(.replaceInk(pageID, layerID, dataAssetID: firstInk.asset.id))
         try await session.flush()
 
-        // The editor the app actually presents, with its view loaded so the
-        // scroll view, page pool and responder chain are all real.
+        // The editor the app actually presents, with its view loaded and laid
+        // out so the scroll view and page pool are real. The window is never
+        // shown: this test is about the undo path, and a visible window starts
+        // the appearance cycle and PencilKit's own machinery for no benefit.
         let controller = NotebookEditorViewController(session: session, initialPageID: pageID)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1024, height: 1366))
         window.rootViewController = controller
-        window.isHidden = false
+        controller.loadViewIfNeeded()
+        controller.view.frame = window.bounds
         controller.view.layoutIfNeeded()
 
         let before = session.editor.snapshot
@@ -175,7 +179,7 @@ final class AppFlowTests: XCTestCase {
         XCTAssertEqual(reopenedPage.inkLayers[0].dataAssetID,
                        try XCTUnwrap(session.editor.page(pageID)).inkLayers[0].dataAssetID)
 
-        window.isHidden = true
+        window.rootViewController = nil
         await environment.shutdown()
     }
 
@@ -312,6 +316,7 @@ final class AppFlowTests: XCTestCase {
         var physicsItem: ReviewItem!
         for (documentID, title) in [(kinematics, "Projectile"), (algebra, "Quadratics")] {
             let session = try await environment.session(for: documentID)
+            environment.setRecognitionPaused(true)
             let pageID = session.editor.document.pageIDs[0]
             let answer = tape(at: PageRect(x: 60, y: 400, width: 300, height: 60))
             try session.apply(.addObject(pageID, answer, at: nil))
@@ -382,12 +387,14 @@ final class AppFlowTests: XCTestCase {
             title: "Beta", folderID: nil, template: .preset(.lined), pageSize: .letter, cover: .default, pageCount: 1)
 
         let alphaSession = try await environment.session(for: alpha)
+        environment.setRecognitionPaused(true)
         try alphaSession.apply(.addObject(alphaSession.editor.document.pageIDs[0],
                                           text("entropy always increases", at: PageRect(x: 72, y: 100, width: 200, height: 40)), at: nil))
         try alphaSession.apply(.addObject(alphaSession.editor.document.pageIDs[1],
                                           text("entropy of mixing", at: PageRect(x: 72, y: 100, width: 200, height: 40)), at: nil))
         try await alphaSession.flush()
         let betaSession = try await environment.session(for: beta)
+        environment.setRecognitionPaused(true)
         try betaSession.apply(.addObject(betaSession.editor.document.pageIDs[0],
                                          text("entropy in one line", at: PageRect(x: 72, y: 100, width: 200, height: 40)), at: nil))
         try await betaSession.flush()
