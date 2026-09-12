@@ -69,3 +69,16 @@ jobs:
             cat "$RUNNER_TEMP/builds.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: TestFlight groups
+        # add-build matches a group by exact name and refuses to guess, so when
+        # a release cannot find its group the useful thing is Apple's own list.
+        run: |
+          python3 Scripts/asc.py list-groups --app-id "$APP_APPLE_ID" \
+            | tee "$RUNNER_TEMP/groups.json"
+          {
+            echo "## TestFlight groups"
+            echo '```json'
+            cat "$RUNNER_TEMP/groups.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

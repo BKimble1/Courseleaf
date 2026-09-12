@@ -445,6 +445,21 @@ def cmd_profile(args) -> int:
     return 0
 
 
+def cmd_list_groups(args) -> int:
+    """Every TestFlight group on the app, with the names exactly as Apple
+    spells them. add-build matches by name, so a release that cannot find its
+    group needs to see the real list rather than a guess at what it meant."""
+    groups = [{
+        "id": g["id"],
+        "name": g["attributes"].get("name"),
+        "isInternalGroup": g["attributes"].get("isInternalGroup"),
+        "createdDate": g["attributes"].get("createdDate"),
+        "publicLinkEnabled": g["attributes"].get("publicLinkEnabled"),
+    } for g in paged("/v1/betaGroups", {"filter[app]": args.app_id})]
+    print(json.dumps(groups, indent=2))
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -489,6 +504,9 @@ def main() -> int:
     s.add_argument("--type", default="IOS_APP_STORE"); s.add_argument("--cert-id", required=True)
     s.add_argument("--name", required=True); s.add_argument("--out", required=True)
     s.set_defaults(func=cmd_profile)
+
+    s = sub.add_parser("list-groups"); s.add_argument("--app-id", required=True)
+    s.set_defaults(func=cmd_list_groups)
 
     args = p.parse_args()
     return args.func(args)
