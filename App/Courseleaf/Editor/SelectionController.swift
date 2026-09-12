@@ -31,7 +31,7 @@ protocol SelectionControllerHost: AnyObject {
 }
 
 @MainActor
-final class SelectionController: NSObject, SelectionOverlayDelegate, UIEditMenuInteractionDelegate {
+final class SelectionController: NSObject, SelectionOverlayDelegate, @preconcurrency UIEditMenuInteractionDelegate {
     weak var host: SelectionControllerHost?
     private(set) var selection: Selection?
     private var selectionObjectBounds: PageRect?
@@ -510,9 +510,10 @@ final class SelectionController: NSObject, SelectionOverlayDelegate, UIEditMenuI
     private func createTextBox(at point: CGPoint, size: CGSize?, canvas: PageCanvasView) {
         guard let host, let page = host.session.editor.page(canvas.pageID) else { return }
         let content = host.toolState.newTextContent()
-        let width = size?.width ?? min(220, max(60, page.size.width - point.x - 8))
-        let height = max(size?.height ?? 0, TextObjectView.fittingHeight(for: content, width: width))
-        let object = CanvasObject(frame: PageRect(x: Double(point.x), y: Double(point.y), width: Double(width), height: Double(height)),
+        // Keep the arithmetic in `Double` (page points); `size` is a CGSize? from the drag.
+        let width: Double = size.map { Double($0.width) } ?? min(220, max(60, page.size.width - Double(point.x) - 8))
+        let height: Double = max(size.map { Double($0.height) } ?? 0, TextObjectView.fittingHeight(for: content, width: width))
+        let object = CanvasObject(frame: PageRect(x: Double(point.x), y: Double(point.y), width: width, height: height),
                                   content: .text(content), createdAt: now())
         host.performDocumentOperation("Add Text") {
             try host.session.apply(.addObject(canvas.pageID, object, at: nil))
@@ -578,7 +579,7 @@ final class SelectionController: NSObject, SelectionOverlayDelegate, UIEditMenuI
         add(.copy, "Copy", "doc.on.doc") { [weak self] in self?.copySelection(on: canvas) }
         add(.cut, "Cut", "scissors") { [weak self] in self?.cutSelection(on: canvas) }
         if actions.contains(.paste) && EditorPasteboard.hasContent() {
-            items.append(UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] in
+            items.append(UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
                 self?.paste(on: canvas, at: PagePoint(point))
             })
         }

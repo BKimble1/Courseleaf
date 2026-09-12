@@ -102,7 +102,7 @@ enum PageRenderer {
             let a = point(shape.start), b = point(shape.end)
             path.move(to: a); path.addLine(to: b)
             let length = hypot(b.x - a.x, b.y - a.y)
-            let head = min(max(shape.strokeWidth * 5, 10), max(length / 2, 1))
+            let head = min(max(CGFloat(shape.strokeWidth) * 5, 10), max(length / 2, 1))
             if length > 0.5 {
                 let angle = atan2(b.y - a.y, b.x - a.x)
                 let left = CGPoint(x: b.x - head * cos(angle - .pi / 6), y: b.y - head * sin(angle - .pi / 6))

@@ -409,9 +409,10 @@ struct TextStylePopoverView: View {
             }
             Section("Alignment") {
                 Picker("Alignment", selection: $style.alignment) {
-                    Image(systemName: "text.alignleft").tag(TextAlignment.leading).accessibilityLabel("Leading")
-                    Image(systemName: "text.aligncenter").tag(TextAlignment.center).accessibilityLabel("Center")
-                    Image(systemName: "text.alignright").tag(TextAlignment.trailing).accessibilityLabel("Trailing")
+                    // `TextAlignment` exists in both SwiftUI and DocumentCore; qualify the document one.
+                    Image(systemName: "text.alignleft").tag(DocumentCore.TextAlignment.leading).accessibilityLabel("Leading")
+                    Image(systemName: "text.aligncenter").tag(DocumentCore.TextAlignment.center).accessibilityLabel("Center")
+                    Image(systemName: "text.alignright").tag(DocumentCore.TextAlignment.trailing).accessibilityLabel("Trailing")
                 }
                 .pickerStyle(.segmented)
             }

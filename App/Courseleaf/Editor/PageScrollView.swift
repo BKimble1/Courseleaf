@@ -82,8 +82,9 @@ final class PageScrollView: UIScrollView {
     }
 
     /// Zooms about the viewport centre (or a given content point) keeping it fixed.
-    func setZoom(_ zoom: CGFloat, anchoredAt contentPoint: CGPoint? = nil, animated: Bool) {
-        let target = min(max(zoom, minimumZoomScale), maximumZoomScale)
+    /// The parameter is named `scale` so it does not shadow `UIScrollView.zoom(to:animated:)`.
+    func setZoom(_ scale: CGFloat, anchoredAt contentPoint: CGPoint? = nil, animated: Bool) {
+        let target = min(max(scale, minimumZoomScale), maximumZoomScale)
         let anchor = contentPoint ?? CGPoint(x: visibleContentRect.midX, y: visibleContentRect.midY)
         let size = CGSize(width: bounds.width / target, height: bounds.height / target)
         let rect = CGRect(x: anchor.x - size.width / 2, y: anchor.y - size.height / 2, width: size.width, height: size.height)

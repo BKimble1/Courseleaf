@@ -308,7 +308,9 @@ final class CropOverlayView: UIView {
         case .changed:
             let translation = gesture.translation(in: self)
             gesture.setTranslation(.zero, in: self)
-            let dx = translation.x / max(bounds.width, 1), dy = translation.y / max(bounds.height, 1)
+            // Keep the crop arithmetic in `Double`; `crop` is a `PageRect`.
+            let dx = Double(translation.x) / max(Double(bounds.width), 1)
+            let dy = Double(translation.y) / max(Double(bounds.height), 1)
             var c = crop
             if let edge = activeEdge {
                 var minX = c.minX, maxX = c.maxX, minY = c.minY, maxY = c.maxY
