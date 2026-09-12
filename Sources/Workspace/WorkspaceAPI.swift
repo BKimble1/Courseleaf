@@ -235,13 +235,22 @@ public protocol LibraryServicing: AnyObject, Sendable {
     func restoreLibrary(from url: URL, mode: RestoreMode, progress: @Sendable @escaping (ImportProgress) -> Void) async throws -> RestoreReport
 
     func search(_ query: String, scope: SearchScope) async throws -> SearchResults
-    /// Pending review items for one course (folder subtree) or, with nil, every course and unfiled notebook.
-    func reviewQueue(courseID: FolderID?) async throws -> [ReviewQueueEntry]
+    /// Review items for one course (folder subtree) or, with nil, every course
+    /// and unfiled notebook. `includeReviewed` adds the items already marked
+    /// reviewed, which the queue screen needs to show past work and reopen it.
+    func reviewQueue(courseID: FolderID?, includeReviewed: Bool) async throws -> [ReviewQueueEntry]
     func markReviewed(_ itemID: ReviewItemID, in documentID: DocumentID) async throws
     func reopenReview(_ itemID: ReviewItemID, in documentID: DocumentID) async throws
 
     func rebuildCatalog(progress: @Sendable @escaping (ImportProgress) -> Void) async throws
     func storageReport() async throws -> StorageReport
+}
+
+extension LibraryServicing {
+    /// The queue as it is normally asked for: what is still pending.
+    public func reviewQueue(courseID: FolderID?) async throws -> [ReviewQueueEntry] {
+        try await reviewQueue(courseID: courseID, includeReviewed: false)
+    }
 }
 
 /// One open document: the editor, save status and per-document services.

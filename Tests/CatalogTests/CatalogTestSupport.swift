@@ -56,9 +56,9 @@ enum CatalogFixtures {
 
     @discardableResult
     static func addReview(_ snapshot: inout DocumentSnapshot, index: Int, prompt: String?, created: TimeInterval,
-                          region: PageRect? = nil, state: ReviewState = .pending) -> ReviewItem {
+                          region: PageRect? = nil, state: ReviewState = .pending, answerTapeID: ObjectID? = nil) -> ReviewItem {
         let id = snapshot.document.pageIDs[index]
-        let item = ReviewItem(pageID: id, region: region, prompt: prompt, state: state, createdAt: date(created))
+        let item = ReviewItem(pageID: id, region: region, prompt: prompt, answerTapeID: answerTapeID, state: state, createdAt: date(created))
         snapshot.document.reviewItems.append(item)
         return item
     }

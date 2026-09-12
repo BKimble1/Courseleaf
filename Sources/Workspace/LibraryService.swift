@@ -779,7 +779,7 @@ public actor LibraryService: LibraryServicing {
         } catch { throw WorkspaceError.catalogUnavailable("\(error)") }
     }
 
-    public func reviewQueue(courseID: FolderID?) async throws -> [ReviewQueueEntry] {
+    public func reviewQueue(courseID: FolderID?, includeReviewed: Bool) async throws -> [ReviewQueueEntry] {
         try await ensureOpen()
         let manifest = try await manifest()
         var folderIDs: Set<FolderID>? = nil
@@ -795,7 +795,7 @@ public actor LibraryService: LibraryServicing {
         }
         if let catalog {
             do {
-                let rows = try await catalog.reviewQueue(folderIDs: folderIDs, includeUnfiled: folderIDs == nil)
+                let rows = try await catalog.reviewQueue(folderIDs: folderIDs, includeUnfiled: folderIDs == nil, includeReviewed: includeReviewed)
                 return rows.map { entry(item: $0.reviewItem, documentID: $0.documentID, title: $0.documentTitle, folderID: $0.folderID,
                                         pageIndex: $0.pageIndex, problemTitle: $0.problemTitle, problemStatus: $0.problemStatus) }
             } catch { /* fall through to the package scan */ }
@@ -807,7 +807,7 @@ public actor LibraryService: LibraryServicing {
             if let folderIDs { guard let folderID, folderIDs.contains(folderID) else { continue } }
             guard let opened = try? await store.openDocument(listing.id).result else { continue }
             let snapshot = opened.snapshot
-            for item in ReviewRules.pendingItems(in: snapshot) {
+            for item in (includeReviewed ? ReviewRules.items(in: snapshot) : ReviewRules.pendingItems(in: snapshot)) {
                 guard let index = snapshot.pageIndex(item.pageID) else { continue }
                 let page = snapshot.page(item.pageID)
                 entries.append(entry(item: item, documentID: listing.id, title: listing.document.title, folderID: folderID, pageIndex: index,

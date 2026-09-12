@@ -63,7 +63,7 @@ public struct PageRow: Hashable, Identifiable, Sendable {
     }
 }
 
-/// A pending review item joined with its document and page, oldest first.
+/// A review item joined with its document and page, oldest first.
 public struct ReviewQueueRow: Hashable, Identifiable, Sendable {
     public var itemID: ReviewItemID
     public var documentID: DocumentID
@@ -73,6 +73,9 @@ public struct ReviewQueueRow: Hashable, Identifiable, Sendable {
     public var pageIndex: Int
     public var region: PageRect?
     public var prompt: String?
+    /// Tape object covering the answer, if the student added one for this item.
+    /// Catalogued because the queue reveals the answer without opening the page.
+    public var answerTapeID: ObjectID?
     public var state: ReviewState
     public var createdAt: Date
     public var lastReviewedAt: Date?
@@ -81,18 +84,19 @@ public struct ReviewQueueRow: Hashable, Identifiable, Sendable {
     public var id: ReviewItemID { itemID }
 
     public init(itemID: ReviewItemID, documentID: DocumentID, documentTitle: String, folderID: FolderID?, pageID: PageID,
-                pageIndex: Int, region: PageRect?, prompt: String?, state: ReviewState, createdAt: Date, lastReviewedAt: Date?,
-                problemTitle: String?, problemStatus: ProblemStatus?) {
+                pageIndex: Int, region: PageRect?, prompt: String?, answerTapeID: ObjectID?, state: ReviewState,
+                createdAt: Date, lastReviewedAt: Date?, problemTitle: String?, problemStatus: ProblemStatus?) {
         self.itemID = itemID; self.documentID = documentID; self.documentTitle = documentTitle; self.folderID = folderID
-        self.pageID = pageID; self.pageIndex = pageIndex; self.region = region; self.prompt = prompt; self.state = state
+        self.pageID = pageID; self.pageIndex = pageIndex; self.region = region; self.prompt = prompt
+        self.answerTapeID = answerTapeID; self.state = state
         self.createdAt = createdAt; self.lastReviewedAt = lastReviewedAt; self.problemTitle = problemTitle; self.problemStatus = problemStatus
     }
 
-    /// The catalog's projection of the item. `answerTapeID` and `history` are
-    /// not catalogued; load the document for the authoritative value.
+    /// The catalog's projection of the item. `history` is not catalogued; load
+    /// the document when the event log itself is wanted.
     public var reviewItem: ReviewItem {
-        ReviewItem(id: itemID, pageID: pageID, region: region, prompt: prompt, state: state,
-                   createdAt: createdAt, lastReviewedAt: lastReviewedAt)
+        ReviewItem(id: itemID, pageID: pageID, region: region, prompt: prompt, answerTapeID: answerTapeID,
+                   state: state, createdAt: createdAt, lastReviewedAt: lastReviewedAt)
     }
 }
 

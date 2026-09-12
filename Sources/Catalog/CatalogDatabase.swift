@@ -128,10 +128,11 @@ public actor CatalogDatabase {
             try db.run("DELETE FROM review_items WHERE document_id = ?", [docID])
             for item in document.reviewItems where liveIDs.contains(item.pageID) {
                 try db.run("""
-                    INSERT INTO review_items(id, document_id, page_id, state, prompt, created_at, last_reviewed_at, region_json)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO review_items(id, document_id, page_id, state, prompt, created_at, last_reviewed_at, region_json, answer_tape_id)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, [.init(item.id), docID, .init(item.pageID), .init(item.state.rawValue), .init(item.prompt),
-                          .init(item.createdAt), .init(item.lastReviewedAt), .init(try encodeJSON(item.region))])
+                          .init(item.createdAt), .init(item.lastReviewedAt), .init(try encodeJSON(item.region)),
+                          .init(item.answerTapeID)])
             }
 
             // Synchronously indexed records are rebuilt from the snapshot every time.
@@ -234,24 +235,28 @@ public actor CatalogDatabase {
 
     // MARK: Review queue
 
-    /// Pending review items, oldest first.
+    /// Review items, oldest first.
     /// - Parameters:
     ///   - folderIDs: only documents filed in these folders (pass a course
     ///     subtree from `LibraryManifest.subtree(of:)`); nil means every filed document.
     ///   - includeUnfiled: also documents that are not in any folder.
-    public func reviewQueue(folderIDs: Set<FolderID>?, includeUnfiled: Bool) throws -> [ReviewQueueRow] {
+    ///   - includeReviewed: also items the student has already marked reviewed.
+    ///     The queue screen needs them to show past work and to reopen it; on
+    ///     its own it only ever asks for what is still pending.
+    public func reviewQueue(folderIDs: Set<FolderID>?, includeUnfiled: Bool, includeReviewed: Bool = false) throws -> [ReviewQueueRow] {
         try db.query("""
             SELECT ri.id, ri.document_id, d.title, d.folder_id, ri.page_id, p.page_index, ri.region_json, ri.prompt, ri.state,
-                   ri.created_at, ri.last_reviewed_at, p.problem_title, p.problem_status
+                   ri.created_at, ri.last_reviewed_at, p.problem_title, p.problem_status, ri.answer_tape_id
             FROM review_items ri
             JOIN documents d ON d.id = ri.document_id
             JOIN pages p ON p.id = ri.page_id
-            WHERE ri.state = 'pending'
+            WHERE (?4 = 1 OR ri.state = 'pending')
               AND ((?1 = 0 AND d.folder_id IS NOT NULL)
                    OR d.folder_id IN (SELECT value FROM json_each(?2))
                    OR (?3 = 1 AND d.folder_id IS NULL))
             ORDER BY ri.created_at, d.title COLLATE NOCASE, p.page_index, ri.id
-            """, [.init(folderIDs != nil), .init(CatalogDatabase.jsonArray(folderIDs ?? [])), .init(includeUnfiled)]) { s in
+            """, [.init(folderIDs != nil), .init(CatalogDatabase.jsonArray(folderIDs ?? [])), .init(includeUnfiled),
+                  .init(includeReviewed)]) { s in
             guard let itemID: ReviewItemID = s.identifier(0), let docID: DocumentID = s.identifier(1), let pageID: PageID = s.identifier(4) else {
                 throw CatalogError.encoding("review item row")
             }
@@ -259,6 +264,7 @@ public actor CatalogDatabase {
                 itemID: itemID, documentID: docID, documentTitle: s.string(2),
                 folderID: s.optionalString(3).flatMap(FolderID.init(uuidString:)), pageID: pageID, pageIndex: s.int(5),
                 region: try decodeJSON(PageRect.self, s.optionalString(6)), prompt: s.optionalString(7),
+                answerTapeID: s.optionalString(13).flatMap(ObjectID.init(uuidString:)),
                 state: ReviewState(rawValue: s.string(8)) ?? .pending, createdAt: s.date(9), lastReviewedAt: s.optionalDate(10),
                 problemTitle: s.optionalString(11), problemStatus: s.optionalString(12).flatMap(ProblemStatus.init(rawValue:)))
         }

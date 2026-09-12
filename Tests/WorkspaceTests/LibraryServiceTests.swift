@@ -707,6 +707,62 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertEqual(state, .pending)
     }
 
+    func testReviewQueueEntryFromTheCatalogCarriesTheAnswerTape() async throws {
+        let root = try tempDirectory()
+        let clock = ManualClock(start: WS.epoch)
+        let service = try await makeService(root: root, clock: clock)
+        let course = try await service.createFolder(name: "Physics", parentID: nil, isCourse: true)
+        let id = try await service.createNotebook(title: "Optics", folderID: course.id, template: .lined, pageSize: .letter, cover: .default, pageCount: 1)
+        let session = try await service.openSession(id) as! DocumentSession
+        let tapeID: ObjectID = try await MainActor.run {
+            let page = session.editor.document.pageIDs[0]
+            let tape = CanvasObject(frame: PageRect(x: 300, y: 500, width: 200, height: 40), content: .tape(TapeContent(label: "answer")), createdAt: clock.now())
+            try session.apply(.addObject(page, tape, at: nil))
+            try session.apply(.addReviewItem(ReviewRules.makeReviewItem(pageID: page, prompt: "Derive Snell", answerTapeID: tape.id, now: clock.now())))
+            return tape.id
+        }
+        await service.closeSession(id)
+
+        // The catalogued path is the one the app takes; it used to drop the tape
+        // and leave the reveal silently doing nothing.
+        let available = await service.isCatalogAvailable
+        XCTAssertTrue(available)
+        let queue = try await service.reviewQueue(courseID: course.id)
+        XCTAssertEqual(queue.count, 1)
+        XCTAssertEqual(queue[0].item.answerTapeID, tapeID)
+        XCTAssertEqual(queue[0].item.prompt, "Derive Snell")
+    }
+
+    func testReviewQueueReturnsReviewedItemsOnlyWhenAsked() async throws {
+        let root = try tempDirectory()
+        let clock = ManualClock(start: WS.epoch)
+        let service = try await makeService(root: root, clock: clock)
+        let course = try await service.createFolder(name: "Biology", parentID: nil, isCourse: true)
+        let id = try await service.createNotebook(title: "Cells", folderID: course.id, template: .lined, pageSize: .letter, cover: .default, pageCount: 1)
+        let session = try await service.openSession(id) as! DocumentSession
+        let item: ReviewItem = try await MainActor.run {
+            let item = ReviewRules.makeReviewItem(pageID: session.editor.document.pageIDs[0], prompt: "organelles", now: clock.now())
+            try session.apply(.addReviewItem(item))
+            return item
+        }
+        await service.closeSession(id)
+        try await service.markReviewed(item.id, in: id)
+
+        let pending = try await service.reviewQueue(courseID: course.id)
+        XCTAssertTrue(pending.isEmpty, "the queue is about what is still pending")
+        // Without these the screen's "show reviewed" and "reopen" have nothing to act on.
+        let everything = try await service.reviewQueue(courseID: course.id, includeReviewed: true)
+        XCTAssertEqual(everything.map(\.id), [item.id])
+        XCTAssertEqual(everything[0].item.state, .reviewed)
+        XCTAssertNotNil(everything[0].item.lastReviewedAt)
+
+        try await service.reopenReview(item.id, in: id)
+        let reopened = try await service.reviewQueue(courseID: course.id)
+        XCTAssertEqual(reopened.map(\.id), [item.id])
+        let reopenedAll = try await service.reviewQueue(courseID: course.id, includeReviewed: true)
+        XCTAssertEqual(reopenedAll.map(\.id), [item.id], "the item is listed once, not twice")
+    }
+
     // MARK: - Catalog
 
     func testCatalogDeletedThenRebuiltAnswersIdenticalQueries() async throws {

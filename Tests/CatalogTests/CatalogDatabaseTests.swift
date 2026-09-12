@@ -215,6 +215,30 @@ final class CatalogDatabaseTests: XCTestCase {
         }
     }
 
+    func testReviewQueueCarriesTheAnswerTapeAndReviewedItemsOnRequest() async throws {
+        try await withEachBackend { catalog, backend in
+            var lib = Library.make()
+            let tape = ObjectID()
+            F.addReview(&lib.loose, index: 0, prompt: "with a tape", created: 6, answerTapeID: tape)
+            try await catalog.rebuild(manifest: lib.manifest, snapshots: lib.all)
+
+            // The queue reveals the answer straight from the row, so losing the
+            // tape reference here makes the reveal do nothing.
+            let unfiled = try await catalog.reviewQueue(folderIDs: [], includeUnfiled: true)
+            XCTAssertEqual(unfiled.map(\.prompt), ["unfiled review", "with a tape"], backend)
+            XCTAssertEqual(unfiled[1].answerTapeID, tape, backend)
+            XCTAssertEqual(unfiled[1].reviewItem.answerTapeID, tape, "the projection carries it too")
+            XCTAssertNil(unfiled[0].answerTapeID, "an item the student gave no tape has none")
+
+            let pending = try await catalog.reviewQueue(folderIDs: [lib.physics.id], includeUnfiled: false)
+            XCTAssertEqual(pending.map(\.prompt), ["State the second law", "Why does the block slide?"], "reviewed items stay out by default")
+            let withReviewed = try await catalog.reviewQueue(folderIDs: [lib.physics.id], includeUnfiled: false, includeReviewed: true)
+            XCTAssertEqual(withReviewed.map(\.prompt), ["already done", "State the second law", "Why does the block slide?"], "oldest first")
+            XCTAssertEqual(withReviewed[0].state, .reviewed, backend)
+            XCTAssertEqual(withReviewed[0].reviewItem.state, .reviewed, backend)
+        }
+    }
+
     func testRankingOrderTitleTypedPDFTextRecognized() async throws {
         try await withEachBackend { catalog, backend in
             var recognizedDoc = F.notebook(title: "Recognized only", pageCount: 1, created: 0)

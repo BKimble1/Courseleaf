@@ -1,11 +1,13 @@
 import Foundation
 
-/// Schema v1 of the rebuildable catalog. The version lives in `user_version`.
+/// Schema v2 of the rebuildable catalog. The version lives in `user_version`.
 /// Every table is derived from `library.json` and the document packages; the
 /// only data that is not trivially re-derivable (PDF text and recognized text)
-/// is keyed by page revision so it is discarded exactly when stale.
+/// is keyed by page revision so it is discarded exactly when stale. A shape
+/// change is therefore a version bump and a rebuild from the packages, not a
+/// migration: nothing here is worth carrying across.
 enum CatalogSchema {
-    static let version = 1
+    static let version = 2
 
     static let statements: [String] = [
         """
@@ -61,7 +63,8 @@ enum CatalogSchema {
             prompt TEXT,
             created_at REAL NOT NULL,
             last_reviewed_at REAL,
-            region_json TEXT
+            region_json TEXT,
+            answer_tape_id TEXT
         )
         """,
         "CREATE INDEX IF NOT EXISTS review_items_document_id ON review_items(document_id)",
