@@ -128,6 +128,62 @@ Baseline hardware: **to be chosen and recorded** (model, chip, iPadOS build, Pen
 generation). If a target is unrealistic on the chosen hardware, record the
 measurement and agree a revised product limit here rather than adjusting the test.
 
+## Premium-editor release (2026-09-12)
+
+What this release's own tests prove, and what they deliberately do not.
+
+**Proved by test, on Linux (`core-linux`) and the iPad simulator
+(`app-ios-simulator`).**
+
+| Claim | Test |
+|---|---|
+| A serialization still in flight when a page's drawing is replaced writes nothing, and the replacement is what reaches disk | `EditorReliabilityTests.testAStaleSerializationCannotOverwriteInkThatReplacedIt` — closes the session, reopens the package, compares the restored asset |
+| Strokes drawn while an earlier serialization is stuck are all saved | `…testStrokesAfterASlowSerializationAreStillSaved` — three strokes, reopened and counted |
+| Evicting a page with a serializer that never finishes still commits | `…testEvictingAPageCommitsInkThatHasNotBeenSerializedYet` |
+| An immediate undo of a first stroke removes it | `…testAFirstStrokeCanBeUndoneImmediately` |
+| Two quick strokes are two undo steps | `…testTwoQuickStrokesAreTwoUndoSteps` |
+| Undoing a clear page restores what was on screen | `…testUndoingClearPageRestoresTheStrokeThatWasStillOnScreen` |
+| The Edit menu / three-finger-swipe manager steps the document's history | `…testTheResponderChainManagerStepsTheDocumentsHistory` |
+| PencilKit's registrations never reach the editor's UndoManager | `…testPencilKitRegistrationsNeverReachTheEditorsUndoManager` |
+| Undecodable ink is reported, refuses input, keeps its asset | `…testAPageWhoseInkCannotBeReadRefusesInputAndKeepsItsAsset`, `…testTheLoaderTellsMissingApartFromUnreadableAndEmpty` |
+| Export sees a stroke that has not left its canvas | `…testTheExportBarrierSeesAStrokeThatHasNotLeftTheCanvas` |
+| Saved preferences from the shipped build survive the new schema | `EditorToolStateMigrationTests` — decodes a version-1 blob written by the shipped build, asserts every field, and that favourites are seeded from the student's own pens |
+| One tap to a favourite, a visible colour, a visible width | `EditorToolbarInteractionTests`, `EditorToolbarUITests` |
+| A colour change updates buttons in place rather than rebuilding the row | `EditorToolbarInteractionTests.testChangingColourUpdatesTheExistingButtonsInsteadOfRebuildingTheRow` |
+| Scribble erase accepts a cross-out and refuses a sine wave, repeated letters, shading, hatching, a zigzag drawing and a summation sign | `ScribbleEraseTests` (Linux) |
+| Shape correction keeps a 30° diagonal diagonal, snaps a 2° line flat, refuses a scribble | `ShapeRecognitionTests` (Linux) |
+| A search or review deep link reaches the region, not just the page | `DeepLinkAndReviewTests` |
+| Review shows the work, and revealing the answer changes the picture | `DeepLinkAndReviewTests.testReviewRendersThePageAndTheTapeStateItIsActuallyIn` |
+
+**Screenshots.** `EditorToolbarUITests` attaches screenshots of the real
+simulator UI — default, highlighter selected, colour and width changed, a
+favourite applied, the options menu, landscape, portrait, dark appearance and an
+accessibility text size — to `Build/CourseleafTests.xcresult`, which the
+`app-ios-simulator` job uploads as the `ios-simulator-results` artifact.
+
+**Not proved, and not claimed.**
+
+- Nothing here touched an Apple Pencil. Every hardware behaviour — latency, palm
+  rejection, hover, the three-finger undo gesture, and whether the hold in
+  draw-and-hold feels right in the hand — is **device-only**. The checklist for
+  it is `docs/DEVICE_CHECKLIST.md`.
+- No performance target below has been measured. The paths this release changed
+  (ink serialization at a gesture boundary instead of on a timer; eviction
+  serializing only a page that is genuinely dirty) are an argument that main-
+  actor work on scroll went down, not a measurement that it did.
+- Scribble erase and draw-and-hold have Linux evidence for their *decisions* and
+  no simulator or device evidence for their *timing*. A gesture that is right in
+  principle and wrong in the hand is still wrong.
+
+**A false green, found and fixed.** The `core-linux` job ran
+`swift test --parallel 2>&1 | tee test-output.log`, so the step reported `tee`'s
+exit code and not the test run's. It went green on a run with three failing
+tests in this very release. The step is `bash` with `pipefail` now, and the
+verdict reads `swift test`'s xUnit report — because with `--parallel` a passing
+run prints no "Executed N tests" line at all, only failures get one, so the log
+could not be counted. This is the third false-green defect this project has
+found in its own harness; all three are recorded here.
+
 ## Defects the end-to-end tests found
 
 Driving the real screens rather than the engine underneath turned up three

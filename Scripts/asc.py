@@ -207,6 +207,41 @@ def cmd_add_build(args) -> int:
     return 0
 
 
+def cmd_set_notes(args) -> int:
+    """Set the build's "What to Test" for one locale.
+
+    Testers see this in TestFlight before they install, so it is the only place
+    a build can say what changed and what is known to be unfinished. Updates the
+    existing localization when there is one rather than adding a second."""
+    text = args.text
+    if args.file:
+        with open(args.file) as fh:
+            text = fh.read()
+    if not text or not text.strip():
+        print("ERROR: no notes given (--text or --file)")
+        return 2
+    # Apple caps this field; trim rather than be rejected after a good upload.
+    limit = 4000
+    text = text.strip()
+    if len(text) > limit:
+        text = text[: limit - 3].rstrip() + "..."
+    existing = paged(f"/v1/builds/{args.build_id}/betaBuildLocalizations",
+                     {"fields[betaBuildLocalizations]": "locale,whatsNew"})
+    for loc in existing:
+        if loc["attributes"].get("locale") == args.locale:
+            request("PATCH", f"/v1/betaBuildLocalizations/{loc['id']}",
+                    {"data": {"type": "betaBuildLocalizations", "id": loc["id"],
+                              "attributes": {"whatsNew": text}}})
+            print(f"updated What to Test for {args.locale} ({len(text)} characters)")
+            return 0
+    request("POST", "/v1/betaBuildLocalizations",
+            {"data": {"type": "betaBuildLocalizations",
+                      "attributes": {"locale": args.locale, "whatsNew": text},
+                      "relationships": {"build": {"data": {"type": "builds", "id": args.build_id}}}}})
+    print(f"set What to Test for {args.locale} ({len(text)} characters)")
+    return 0
+
+
 def cmd_testers(args) -> int:
     g = find_group(args.app_id, args.name)
     group_testers = []
@@ -485,6 +520,10 @@ def main() -> int:
     s = sub.add_parser("add-build"); s.add_argument("--app-id", required=True)
     s.add_argument("--name", required=True); s.add_argument("--build-id", required=True)
     s.set_defaults(func=cmd_add_build)
+
+    s = sub.add_parser("set-notes"); s.add_argument("--build-id", required=True)
+    s.add_argument("--locale", default="en-US"); s.add_argument("--text"); s.add_argument("--file")
+    s.set_defaults(func=cmd_set_notes)
 
     s = sub.add_parser("testers"); s.add_argument("--app-id", required=True)
     s.add_argument("--name", required=True); s.set_defaults(func=cmd_testers)

@@ -18,7 +18,10 @@ final class EditorToolbarUITests: XCTestCase {
     private func launch(arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // A throwaway library in a temporary directory, with one notebook open.
-        app.launchArguments = ["-CourseleafUITest"] + arguments
+        // The onboarding flag goes through UserDefaults' argument domain, which
+        // is read before the first view appears and written to nothing, so the
+        // welcome screens never cover the editor under test.
+        app.launchArguments = ["-CourseleafUITest", "-settings.onboarding.seen", "YES"] + arguments
         app.launch()
         return app
     }
@@ -101,12 +104,12 @@ final class EditorToolbarUITests: XCTestCase {
         let app = launch()
         let pen = toolbar(in: app)
         pen.press(forDuration: 1.0)
-        // The pen's options carry a Width submenu; its presence is what proves
-        // the menu opened rather than the tap being swallowed.
-        let width = app.buttons["Width"].firstMatch
-        XCTAssertTrue(width.waitForExistence(timeout: 5), "long press should open the tool's options")
+        // "Save as Favourite" is a concrete action in the pen's options menu —
+        // a section header would not be a button, so this is the assertion that
+        // actually distinguishes "menu opened" from "tap was swallowed".
+        let save = app.buttons["Save as Favourite"].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "long press should open the tool's options")
         attachScreenshot(app, "editor-tool-options")
-        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
     }
 
     // MARK: Appearance and orientation

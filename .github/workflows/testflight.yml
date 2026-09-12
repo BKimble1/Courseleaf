@@ -210,6 +210,14 @@ jobs:
           python3 Scripts/asc.py add-build --app-id "$APP_APPLE_ID" \
             --name "$TESTFLIGHT_GROUP" --build-id "$BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: What to Test
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: |
+          # Testers read this in TestFlight before they install; it is the only
+          # place the build can say what changed and what is unfinished.
+          python3 Scripts/asc.py set-notes --build-id "$BUILD_ID" \
+            --file docs/release/WHAT_TO_TEST.md | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Internal testers
         if: ${{ env.DRY_RUN != 'true' }}
         continue-on-error: true

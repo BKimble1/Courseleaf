@@ -116,7 +116,8 @@ final class EditorReliabilityTests: XCTestCase {
 
     private func strokeCount(ofAsset id: AssetID?, in session: any DocumentSessioning) async throws -> Int {
         guard let id else { return 0 }
-        let data = try XCTUnwrap(try await session.assetData(id))
+        let bytes = try await session.assetData(id)
+        let data = try XCTUnwrap(bytes)
         return try PKDrawing(data: data).strokes.count
     }
 
@@ -213,8 +214,8 @@ final class EditorReliabilityTests: XCTestCase {
 
         let restored = try await restoredInkAsset(environment, documentID, pageID)
         let reopened = try await environment.session(for: documentID)
-        XCTAssertEqual(try await strokeCount(ofAsset: restored, in: reopened), 2,
-                       "eviction must not discard a page's dirty drawing")
+        let evictedStrokes = try await strokeCount(ofAsset: restored, in: reopened)
+        XCTAssertEqual(evictedStrokes, 2, "eviction must not discard a page's dirty drawing")
         await environment.shutdown()
     }
 
@@ -297,7 +298,8 @@ final class EditorReliabilityTests: XCTestCase {
         await controller.prepareForDocumentSnapshot()
 
         let asset = try XCTUnwrap(session.editor.page(pageID)).inkLayers[0].dataAssetID
-        XCTAssertEqual(try await strokeCount(ofAsset: asset, in: session), 2,
+        let restoredStrokes = try await strokeCount(ofAsset: asset, in: session)
+        XCTAssertEqual(restoredStrokes, 2,
                        "undoing a clear has to bring back what was on the page, not an older version of it")
         await waitFor("the canvas shows the restored strokes") { canvas.drawing.strokes.count == 2 }
         await environment.shutdown()
@@ -414,8 +416,8 @@ final class EditorReliabilityTests: XCTestCase {
         XCTAssertFalse(controller.hasUncommittedInk)
 
         let asset = try XCTUnwrap(session.editor.page(pageID)).inkLayers[0].dataAssetID
-        XCTAssertEqual(try await strokeCount(ofAsset: asset, in: session), 2,
-                       "the exporter would have read a page without these strokes")
+        let committedStrokes = try await strokeCount(ofAsset: asset, in: session)
+        XCTAssertEqual(committedStrokes, 2, "the exporter would have read a page without these strokes")
         await environment.shutdown()
     }
 }
