@@ -2,12 +2,20 @@
 # Build a signed Release archive of Courseleaf for a physical iPad and export a
 # distribution IPA. macOS with Xcode only; there is no simulator anywhere in it.
 #
+# The archive is signed manually with an Apple Distribution identity and an App
+# Store provisioning profile, both put in place by Scripts/signing-identity.sh.
+# Automatic signing cannot be used here: `xcodebuild archive` resolves it to an
+# *iOS App Development* profile, and Apple refuses to issue one to a team with
+# no registered devices. Manual distribution signing is the supported CI path,
+# needs no device, and is what an App Store profile requires anyway.
+#
 # Required environment:
 #   MARKETING_VERSION   e.g. 1.0.0
 #   BUILD_NUMBER        an unused CFBundleVersion for that marketing version
+#   KEYCHAIN_PATH, CODE_SIGN_IDENTITY_NAME, PROVISIONING_PROFILE_NAME
+#                       from Scripts/signing-identity.sh
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH
-#                       App Store Connect API key, used so Xcode can fetch or
-#                       create the distribution certificate and profile itself
+#                       App Store Connect API key
 # Optional:
 #   TEAM_ID             defaults to the team in App/project.yml
 #
@@ -22,6 +30,9 @@ TEAM_ID="${TEAM_ID:-7GNFT94A9L}"
 : "${ASC_KEY_ID:?set ASC_KEY_ID}"
 : "${ASC_ISSUER_ID:?set ASC_ISSUER_ID}"
 : "${ASC_PRIVATE_KEY_PATH:?set ASC_PRIVATE_KEY_PATH}"
+: "${KEYCHAIN_PATH:?set KEYCHAIN_PATH; run Scripts/signing-identity.sh first}"
+: "${CODE_SIGN_IDENTITY_NAME:?set CODE_SIGN_IDENTITY_NAME; run Scripts/signing-identity.sh first}"
+: "${PROVISIONING_PROFILE_NAME:?set PROVISIONING_PROFILE_NAME; run Scripts/signing-identity.sh first}"
 [ -f "$ASC_PRIVATE_KEY_PATH" ] || { echo "no key file at ASC_PRIVATE_KEY_PATH"; exit 2; }
 
 ARCHIVE="$BUILD/Courseleaf.xcarchive"
@@ -40,21 +51,29 @@ echo "Xcode major $XCODE_MAJOR, newest iOS SDK $SDK"
 [ "${XCODE_MAJOR:-0}" -ge 26 ] || { echo "ERROR: Xcode 26 or newer is required to upload"; exit 2; }
 [ "${SDK_MAJOR:-0}" -ge 26 ] || { echo "ERROR: iOS 26 SDK or newer is required to upload (found $SDK)"; exit 2; }
 
+echo "===== signing inputs ====="
+echo "identity: $CODE_SIGN_IDENTITY_NAME"
+echo "profile:  $PROVISIONING_PROFILE_NAME"
+echo "keychain: $KEYCHAIN_PATH"
+
 command -v xcodegen >/dev/null || { echo "xcodegen not found: brew install xcodegen"; exit 2; }
 cd "$ROOT/App"
 xcodegen generate --spec project.yml
 
-echo "===== archive (generic/platform=iOS, Release, signed) ====="
+echo "===== archive (generic/platform=iOS, Release, Apple Distribution) ====="
 set +e
 set -o pipefail
+# Manual signing throughout: the identity and profile are already installed, so
+# nothing here asks Apple for a profile and a team with no registered devices
+# is no longer a problem.
 xcodebuild archive \
   -project Courseleaf.xcodeproj -scheme Courseleaf -configuration Release \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHIVE" \
-  -allowProvisioningUpdates \
-  -authenticationKeyPath "$ASC_PRIVATE_KEY_PATH" \
-  -authenticationKeyID "$ASC_KEY_ID" \
-  -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+  CODE_SIGN_STYLE=Manual \
+  CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY_NAME" \
+  PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
+  OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   MARKETING_VERSION="$MARKETING_VERSION" \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
@@ -71,12 +90,29 @@ fi
 "$ROOT/Scripts/inspect-archive.sh" "$ARCHIVE" "$MARKETING_VERSION" "$BUILD_NUMBER" "$TEAM_ID"
 
 echo "===== export distribution IPA ====="
+# The committed plist carries everything that does not change between releases;
+# the identity and the profile are known only at run time, so they are written
+# into a copy of it rather than committed.
+EXPORT_PLIST="$BUILD/export-options.plist"
+python3 - "$ROOT/Scripts/export-options.plist" "$EXPORT_PLIST" "$PROVISIONING_PROFILE_NAME" <<'PY'
+import plistlib, sys
+source, target, profile = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(source, "rb") as fh:
+    options = plistlib.load(fh)
+options["signingCertificate"] = "Apple Distribution"
+options["provisioningProfiles"] = {"com.idlery.courseleaf": profile}
+with open(target, "wb") as fh:
+    plistlib.dump(options, fh)
+PY
+echo "----- export options -----"
+cat "$EXPORT_PLIST"
+
 set +e
 set -o pipefail
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT_DIR" \
-  -exportOptionsPlist "$ROOT/Scripts/export-options.plist" \
+  -exportOptionsPlist "$EXPORT_PLIST" \
   -allowProvisioningUpdates \
   -authenticationKeyPath "$ASC_PRIVATE_KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \

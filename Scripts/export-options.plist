@@ -8,8 +8,14 @@
 	<string>app-store-connect</string>
 	<key>teamID</key>
 	<string>7GNFT94A9L</string>
+	<!-- Manual: the archive is already signed with the Apple Distribution
+	     identity and App Store profile installed by Scripts/signing-identity.sh.
+	     Automatic signing would ask Apple for a development profile, which a
+	     team with no registered devices cannot be issued. signingCertificate
+	     and provisioningProfiles are added at run time by Scripts/release-ios.sh,
+	     because the profile name is only known then. -->
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
 	<key>uploadSymbols</key>
 	<true/>
 	<!-- The build number is chosen from App Store Connect before archiving; let

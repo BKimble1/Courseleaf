@@ -24,9 +24,11 @@ expect_eq "ApplicationProperties:Team" \
 expect_nonempty "ApplicationProperties:SigningIdentity" \
   "$(plist_get "$ARCHIVE_INFO" "ApplicationProperties:SigningIdentity")"
 
-# Automatic signing creates a development-signed archive; exportArchive then
-# re-signs the IPA with Apple Distribution. The IPA gate enforces distribution.
-check_app_bundle "$APP" "$VERSION" "$BUILD" "$TEAM" development
+# The archive is signed for distribution up front, so the binary that gets
+# exported is the binary that was inspected. Requiring distribution here means
+# a development-signed archive — the shape automatic signing produces, and the
+# shape Apple will not issue to a team with no devices — fails before export.
+check_app_bundle "$APP" "$VERSION" "$BUILD" "$TEAM" distribution
 
 echo "-- dSYMs"
 DSYMS=$(find "$ARCHIVE/dSYMs" -maxdepth 1 -name '*.dSYM' 2>/dev/null | wc -l | tr -d ' ')

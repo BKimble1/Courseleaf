@@ -18,6 +18,8 @@ Subcommands (all print a single line or a small JSON object):
     add-tester      add one App Store Connect user to an internal group
     audit-signing   read-only inventory of certificates, identifiers, profiles
                     and devices, for diagnosing release signing
+    create-cert     create one distribution certificate from a CSR
+    profile         find or create the App Store profile for a bundle ID
 
 Credentials come from the environment:
     ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH
@@ -333,6 +335,116 @@ def cmd_audit_signing(args) -> int:
     return 0
 
 
+def bundle_id_resource(identifier: str) -> dict:
+    found = [b for b in paged("/v1/bundleIds", {"filter[identifier]": identifier})
+             if b["attributes"].get("identifier") == identifier]
+    if not found:
+        raise SystemExit(f"ERROR: no bundle ID record for {identifier}; create it once in "
+                         "App Store Connect, this script will not")
+    if len(found) > 1:
+        raise SystemExit(f"ERROR: {len(found)} bundle ID records for {identifier}")
+    return found[0]
+
+
+def cmd_create_cert(args) -> int:
+    """Create one distribution certificate from a certificate signing request.
+
+    Apple caps a team at three distribution certificates and revoking one is
+    not on the table here, so a slot spent is gone. The caller is expected to
+    reuse a stored identity and reach this only when it genuinely has none;
+    the existing count is reported so a limit failure is legible rather than
+    mysterious.
+
+    Only the public certificate is written out. The private key never leaves
+    the caller, which generated it, and is never sent to Apple.
+    """
+    with open(args.csr) as fh:
+        csr = fh.read()
+    existing = [c for c in paged("/v1/certificates", {})
+                if c["attributes"].get("certificateType") == args.type]
+    print(f"team already has {len(existing)} {args.type} certificate(s); Apple allows 3",
+          file=sys.stderr)
+    resp = request("POST", "/v1/certificates", {
+        "data": {
+            "type": "certificates",
+            "attributes": {"certificateType": args.type, "csrContent": csr},
+        },
+    })
+    data = resp["data"]
+    with open(args.out, "w") as fh:
+        fh.write(data["attributes"]["certificateContent"])
+    print(json.dumps({
+        "id": data["id"],
+        "certificateType": data["attributes"].get("certificateType"),
+        "serialNumber": data["attributes"].get("serialNumber"),
+        "expirationDate": data["attributes"].get("expirationDate"),
+    }, indent=2))
+    return 0
+
+
+def cmd_profile(args) -> int:
+    """Find or create the App Store provisioning profile for one bundle ID.
+
+    A profile is reused only when it is ACTIVE, belongs to this bundle ID and
+    already lists the certificate we are about to sign with. A profile that
+    fails any of those would produce an archive Xcode cannot sign, and finding
+    that out at codesign time is worse than making a new profile here.
+
+    An App Store profile provisions no devices, which is the whole point: the
+    team has none registered and TestFlight does not need any.
+    """
+    bundle = bundle_id_resource(args.bundle_id)
+    for p in paged("/v1/profiles", {"filter[profileType]": args.type,
+                                    "include": "bundleId,certificates"}):
+        if p["attributes"].get("profileState") != "ACTIVE":
+            continue
+        rel = p.get("relationships", {})
+        linked = (rel.get("bundleId", {}).get("data") or {}).get("id")
+        if linked != bundle["id"]:
+            continue
+        certs = [c["id"] for c in (rel.get("certificates", {}).get("data") or [])]
+        if args.cert_id not in certs:
+            continue
+        # The list response is not guaranteed to carry profileContent; fetch
+        # the profile itself rather than writing an empty file.
+        full = request("GET", f"/v1/profiles/{p['id']}")["data"]
+        with open(args.out, "w") as fh:
+            fh.write(full["attributes"]["profileContent"])
+        print(json.dumps({"id": p["id"], "name": full["attributes"].get("name"),
+                          "uuid": full["attributes"].get("uuid"),
+                          "expirationDate": full["attributes"].get("expirationDate"),
+                          "reused": True}, indent=2))
+        return 0
+
+    body = {
+        "data": {
+            "type": "profiles",
+            "attributes": {"name": args.name, "profileType": args.type},
+            "relationships": {
+                "bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}},
+                "certificates": {"data": [{"type": "certificates", "id": args.cert_id}]},
+            },
+        },
+    }
+    try:
+        data = request("POST", "/v1/profiles", body)["data"]
+    except SystemExit as err:
+        # Profile names are unique per team. An older profile under this name
+        # that we could not reuse above is not ours to delete, so take a new
+        # name instead of failing the release.
+        if "409" not in str(err):
+            raise
+        body["data"]["attributes"]["name"] = f"{args.name} {args.cert_id}"
+        data = request("POST", "/v1/profiles", body)["data"]
+    with open(args.out, "w") as fh:
+        fh.write(data["attributes"]["profileContent"])
+    print(json.dumps({"id": data["id"], "name": data["attributes"].get("name"),
+                      "uuid": data["attributes"].get("uuid"),
+                      "expirationDate": data["attributes"].get("expirationDate"),
+                      "reused": False}, indent=2))
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -368,6 +480,15 @@ def main() -> int:
 
     s = sub.add_parser("audit-signing"); s.add_argument("--bundle-id", required=True)
     s.set_defaults(func=cmd_audit_signing)
+
+    s = sub.add_parser("create-cert"); s.add_argument("--type", default="DISTRIBUTION")
+    s.add_argument("--csr", required=True); s.add_argument("--out", required=True)
+    s.set_defaults(func=cmd_create_cert)
+
+    s = sub.add_parser("profile"); s.add_argument("--bundle-id", required=True)
+    s.add_argument("--type", default="IOS_APP_STORE"); s.add_argument("--cert-id", required=True)
+    s.add_argument("--name", required=True); s.add_argument("--out", required=True)
+    s.set_defaults(func=cmd_profile)
 
     args = p.parse_args()
     return args.func(args)

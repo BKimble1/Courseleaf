@@ -128,6 +128,40 @@ jobs:
       - name: Test verdict
         run: Scripts/check-test-results.sh Build/CourseleafTests.xcresult "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore the stored signing identity
+        id: identity
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/signing-identity
+          key: courseleaf-signing-identity-v1
+
+      - name: Distribution signing identity and App Store profile
+        id: signing
+        env:
+          IDENTITY_DIR: ${{ runner.temp }}/signing-identity
+        run: |
+          # Placed after the tests, so a red build never spends a certificate.
+          set +e
+          Scripts/signing-identity.sh "$RUNNER_TEMP/signing.env"
+          rc=$?
+          # Record that an identity exists even when a later part of the script
+          # failed, so the save step below still preserves it.
+          [ -f "$IDENTITY_DIR/identity.p12.enc" ] && echo "stored=true" >> "$GITHUB_OUTPUT"
+          [ $rc -eq 0 ] && cat "$RUNNER_TEMP/signing.env" >> "$GITHUB_ENV"
+          exit $rc
+
+      - name: Store the signing identity for later releases
+        # Apple caps a team at three distribution certificates and revoking one
+        # is off the table, so an identity that was just created has to survive
+        # this job even if the build after it fails. Reusing it is what keeps
+        # every later release from spending another slot.
+        if: always() && steps.identity.outputs.cache-hit != 'true' && steps.signing.outputs.stored == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/signing-identity
+          key: courseleaf-signing-identity-v1
+
       - name: Signed Release archive and IPA
         run: Scripts/release-ios.sh
 
