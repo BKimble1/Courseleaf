@@ -35,7 +35,7 @@ targets:
         excludes: ["**/*.md"]
     dependencies:
       - package: CourseleafCore
-        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Fixtures]
+        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Workspace, Fixtures]
     info:
       path: Courseleaf/Info.plist
       properties:
@@ -89,7 +89,7 @@ targets:
     dependencies:
       - target: Courseleaf
       - package: CourseleafCore
-        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Fixtures]
+        products: [DocumentCore, PageGeometry, Editing, Persistence, Archive, Catalog, Workspace, Fixtures]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.courseleaf.app.tests
