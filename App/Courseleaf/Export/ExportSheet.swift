@@ -23,6 +23,16 @@ struct ExportSheet: View {
     /// that can be left out is a parameter that will be.
     let prepare: () async -> Error?
 
+    // Written out because the synthesised memberwise initialiser takes the
+    // access level of its least visible property, and every `@State` here is
+    // private — so it is not callable from the view that presents this sheet.
+    init(session: any DocumentSessioning, currentPageID: PageID?,
+         prepare: @escaping () async -> Error?) {
+        self.session = session
+        self.currentPageID = currentPageID
+        self.prepare = prepare
+    }
+
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
 
