@@ -27,12 +27,13 @@ expect_nonempty() {
 }
 
 # Checks that apply to the app bundle whether it came from the archive or the IPA.
-check_app_bundle() {  # check_app_bundle <App.app> <version> <build> <teamid>
+check_app_bundle() {  # check_app_bundle <App.app> <version> <build> <teamid> [development|distribution]
   # Assertions are the control flow here, so a single failing probe must not
   # abort the caller's `set -e` before the rest of the report is produced.
   local restore; restore=$(set +o | grep errexit)
   set +e
   local app="$1" version="$2" build="$3" team="$4"
+  local signature_kind="${5:-distribution}"
   local info="$app/Info.plist"
   [ -f "$info" ] || { fail "no Info.plist in $app"; eval "$restore"; return; }
 
@@ -81,9 +82,10 @@ check_app_bundle() {  # check_app_bundle <App.app> <version> <build> <teamid>
     expect_eq "TeamIdentifier" "$team_actual" "$team"
     local auth; auth=$(codesign -dvvv "$app" 2>&1 | sed -n 's/^Authority=//p' | head -1)
     expect_nonempty "signing authority" "$auth"
-    case "$auth" in
-      *Distribution*) note "certificate kind" "distribution";;
-      *) fail "signed by '$auth'; TestFlight needs an Apple Distribution certificate";;
+    case "$signature_kind:$auth" in
+      distribution:*Distribution*) note "certificate kind" "distribution";;
+      development:*Development*) note "certificate kind" "development (archive before export)";;
+      *) fail "signed by '$auth'; expected a $signature_kind certificate";;
     esac
     codesign --verify --strict "$app" 2>&1 && note "codesign --verify" "ok" || fail "code signature does not verify"
     local ents; ents=$(mktemp)
@@ -91,7 +93,11 @@ check_app_bundle() {  # check_app_bundle <App.app> <version> <build> <teamid>
     local appid; appid=$(plist_get "$ents" "application-identifier")
     expect_eq "application-identifier" "$appid" "$team.com.idlery.courseleaf"
     local gta; gta=$(plist_get "$ents" "get-task-allow"); [ -n "$gta" ] || gta="absent"
-    case "$gta" in false|absent) note "get-task-allow" "$gta";; *) fail "get-task-allow is '$gta'; that is a development signature";; esac
+    case "$signature_kind:$gta" in
+      distribution:false|distribution:absent) note "get-task-allow" "$gta";;
+      development:true) note "get-task-allow" "$gta";;
+      *) fail "get-task-allow is '$gta'; expected $signature_kind signing";;
+    esac
   else
     fail "app bundle is not code signed"
   fi
