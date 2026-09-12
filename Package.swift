@@ -33,9 +33,11 @@ let package = Package(
         // Native archive container (.courseleaf) export/import with validation. Depends only on the model;
         // Workspace wires it to Persistence.
         .target(name: "Archive", dependencies: ["DocumentCore"]),
-        // System SQLite (libsqlite3 on Linux, the SDK's sqlite3 on Apple platforms).
-        .systemLibrary(name: "CSQLite", path: "Sources/CSQLite", pkgConfig: "sqlite3",
-                       providers: [.apt(["libsqlite3-dev"]), .brew(["sqlite"])]),
+        // Platform SQLite exposed to Swift. A plain C target (not `.systemLibrary`)
+        // because Xcode's local-package integration does not create a build target
+        // for system libraries, which breaks the iOS app build. The header ships in
+        // the Apple SDKs and in libsqlite3-dev on Linux; the library is linked below.
+        .target(name: "CSQLite", linkerSettings: [.linkedLibrary("sqlite3")]),
         // Rebuildable SQLite catalog and full-text search index; review queue queries.
         .target(name: "Catalog", dependencies: ["DocumentCore", "CSQLite"]),
         // Deterministic fixtures: minimal PDF writer/inspector, image header inspector, dense ink, malformed inputs.
