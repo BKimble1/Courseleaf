@@ -24,7 +24,9 @@ expect_eq "ApplicationProperties:Team" \
 expect_nonempty "ApplicationProperties:SigningIdentity" \
   "$(plist_get "$ARCHIVE_INFO" "ApplicationProperties:SigningIdentity")"
 
-check_app_bundle "$APP" "$VERSION" "$BUILD" "$TEAM"
+# Automatic signing creates a development-signed archive; exportArchive then
+# re-signs the IPA with Apple Distribution. The IPA gate enforces distribution.
+check_app_bundle "$APP" "$VERSION" "$BUILD" "$TEAM" development
 
 echo "-- dSYMs"
 DSYMS=$(find "$ARCHIVE/dSYMs" -maxdepth 1 -name '*.dSYM' 2>/dev/null | wc -l | tr -d ' ')
