@@ -159,11 +159,15 @@ accumulate in the temporary directory. The print panel anchors to the middle of
 the window rather than to the button. All three are named in the register and
 are P1.
 
-**Gaps.** Files "Open in" and drag-and-drop are declared in the Info.plist but
-not every entry point is wired (`LSSupportsOpeningDocumentsInPlace` is `false`
-and `onOpenURL` is not handled) — P1, and it depends on deciding whether an
-opened file is imported as a copy or edited in place. JPEG export exists in the
-code and is not reachable.
+**Also now.** Files "Open in Courseleaf", the share sheet and dropping a file
+onto the library all reach the same import flow the file picker uses. The
+declared document types have been in the Info.plist since the app shipped and
+nothing answered them until this release. `LSSupportsOpeningDocumentsInPlace`
+stays `false`: an opened file is imported as a copy, which is what the document
+package model means, and saying so is better than half-supporting editing in
+place.
+
+**Gaps.** JPEG export exists in the code and is not reachable (P1).
 
 **Evidence.** `InterchangeExportTests`, `PDFFixtureTests`, `PageMappingTests`,
 `AppFlowTests` image export and printing.
@@ -197,7 +201,10 @@ P5, and it is the largest single gap against the benchmark.
 **Now.** Every commit is assets → page files → revision → reference check →
 atomic manifest replace, keeping a last-known-good manifest; a crash at any step
 reopens to the pre- or post-state. Validated library backup and restore.
-Recoverable trash. Unreadable ink is now reported rather than replaced.
+Recoverable trash. Unreadable ink is now reported rather than replaced, and a
+notebook whose final save fails **stays open** with its pending work rather than
+closing through the failure — the save scheduler keeps a failed commit's changes
+so a retry can succeed, and closing regardless is what used to throw them away.
 
 **Gaps.** Cloud sync — **out of this release** (see below). Per-document
 passwords/Face ID (P3). Version history a student can browse (P3 — retained

@@ -709,6 +709,10 @@ final class NotebookEditorViewController: UIViewController {
         return committed
     }
 
+    /// How many pages currently have a live `PKCanvasView`. The pool bounds
+    /// this; the performance profile asserts the bound holds after scrolling.
+    var livePageCanvasCount: Int { pool?.liveCanvasCount ?? 0 }
+
     /// True when a live page is holding ink the document has not been told about.
     var hasUncommittedInk: Bool { liveCanvases.contains(where: \.hasUncommittedDrawing) }
 
