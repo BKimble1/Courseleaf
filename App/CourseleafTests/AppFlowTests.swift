@@ -6,6 +6,7 @@ import DocumentCore
 import PageGeometry
 import Editing
 import Workspace
+import Fixtures
 @testable import Courseleaf
 
 /// End-to-end simulator evidence for the flows a student actually performs:
@@ -109,7 +110,7 @@ final class AppFlowTests: XCTestCase {
         let firstInk = PendingAsset.make(data: InterchangeTestSupport.horizontalPenStroke(y: 200, from: 50, to: 300).dataRepresentation(),
                                          mediaType: .inkDrawing, now: Date())
         session.addAsset(firstInk)
-        let layerID = session.editor.firstInkLayerID(of: pageID)
+        let layerID = try XCTUnwrap(session.editor.page(pageID)).inkLayers[0].id
         try session.apply(.replaceInk(pageID, layerID, dataAssetID: firstInk.asset.id))
         try await session.flush()
 
@@ -338,10 +339,12 @@ final class AppFlowTests: XCTestCase {
         XCTAssertEqual(entry.courseName, "Physics")
 
         // The tape starts covered; revealing it is a real, persisted edit.
-        XCTAssertEqual(await model.isTapeRevealed(entry), false)
+        let coveredBefore = await model.isTapeRevealed(entry)
+        XCTAssertEqual(coveredBefore, false)
         let revealed = await model.setTapeRevealed(true, for: entry)
         XCTAssertTrue(revealed)
-        XCTAssertEqual(await model.isTapeRevealed(entry), true)
+        let revealedAfter = await model.isTapeRevealed(entry)
+        XCTAssertEqual(revealedAfter, true)
         XCTAssertNil(environment.alert)
 
         // Marking reviewed takes the item out of the pending queue and keeps

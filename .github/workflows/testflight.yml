@@ -139,8 +139,12 @@ jobs:
         run: |
           # Upload acceptance is not a usable build. Poll until App Store
           # Connect says the build is VALID, and fail if it never gets there.
-          BUILD_ID=$(python3 Scripts/asc.py wait-build --app-id "$APP_APPLE_ID" \
-            --version "$MARKETING_VERSION" --build "$BUILD_NUMBER" --timeout 2700 | tail -1)
+          # Keep the poll's progress in the log: piping straight into tail
+          # would hide every state change and show only the final id.
+          python3 Scripts/asc.py wait-build --app-id "$APP_APPLE_ID" \
+            --version "$MARKETING_VERSION" --build "$BUILD_NUMBER" --timeout 2700 \
+            | tee "$RUNNER_TEMP/processing.log"
+          BUILD_ID=$(tail -1 "$RUNNER_TEMP/processing.log")
           echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
           echo "Build $MARKETING_VERSION ($BUILD_NUMBER) processed: $BUILD_ID" | tee -a "$GITHUB_STEP_SUMMARY"
 

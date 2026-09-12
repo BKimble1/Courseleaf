@@ -14,3 +14,8 @@ DerivedData/
 /.artifacts/
 *.log
 .DS_Store
+# Signing material: never in the repository, even by accident.
+*.p8
+*.p12
+*.cer
+*.mobileprovision

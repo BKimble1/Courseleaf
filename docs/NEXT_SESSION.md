@@ -5,72 +5,84 @@ when context is nearly exhausted; keep it short and exact.
 
 ## State (2026-09-12)
 
-- **Repository:** `BKimble1/QuickWrite` (`/home/user/quickwrite` in the remote
-  session), branch `main`. The app lives here, not in Project-Jarvis.
-- **Last commit on main:** `7627793`.
-- **Linux:** `swift test --parallel` → `Executed 219 tests, with 0 failures`.
-  Green in CI (`core-linux`) on every pushed commit. Fixtures regenerate
-  byte-identically.
-- **iPad simulator (CI `app-ios-simulator`, Xcode 26.3, iOS 26.2):** the app
-  builds and `CourseleafTests` runs — **63 tests, 0 failures** at `7627793`
-  (run 34694155083). This covers the PencilKit ink engine, page layout and
-  pooling, tool state, in-notebook search, the app shell and library view model,
-  the PDF/image inspectors, PDF export alignment and tape policy, and the OCR
-  evaluation.
+- **Repository:** `BKimble1/Courseleaf` (renamed from `QuickWrite`;
+  `/home/user/quickwrite` in the remote session), branch `main`.
+- **Last commit on main:** `PENDING_COMMIT`.
+- **Identity:** app `com.idlery.courseleaf`, tests `com.idlery.courseleaf.tests`,
+  exported UTI `com.idlery.courseleaf.archive` (`.courseleaf`), team
+  `7GNFT94A9L`, App Store Connect Apple ID `6811381700`, SKU
+  `courseleaf-ios-001`. Version 1.0.0; the build number is chosen from App
+  Store Connect at release time.
+- **Linux:** `swift test --parallel` → 219 tests, 0 failures. Green in CI
+  (`core-linux`) on every pushed commit. Fixtures regenerate byte-identically.
+- **iPad simulator (CI `app-ios-simulator`, Xcode 26.3, iOS 26.2):**
+  PENDING_SIM_LINE
 - **Device: still nothing.** There is no physical iPad or Apple Pencil in this
-  environment. G0's device gate and A02, A03, A06, A16, A17 and A19 are open.
-- **Harness trust:** the simulator job fails if zero tests run, after two
-  false-green defects were found and fixed (see `docs/VALIDATION.md`). Treat a
-  green job as meaningful only because of that guard.
-- **Active gate:** G5. G1–G4 code exists for launch scope and is now exercised on
-  both Linux and the simulator. G6 material is drafted; no archive exists.
+  environment. G0's device gate and A02, A03, A06, A16, A17 and A19 are open,
+  and every performance target is unmeasured.
+- **Harness trust:** both workflows call `Scripts/check-test-results.sh`, which
+  fails on a missing bundle, on zero executed tests and on any failure. Two
+  false-green defects were found and fixed earlier (`docs/VALIDATION.md`); treat
+  a green job as meaningful because of that guard, not despite it.
+- **Active gate:** G6. The release path exists end to end but has never run:
+  see the blocker below.
+
+## Blockers
+
+1. **The TestFlight workflow needs three repository secrets, which a coding
+   session cannot write.** The GitHub Actions secrets API is refused by this
+   session's egress proxy ("Access to this GitHub Actions path is not permitted
+   through this proxy"), and `api.appstoreconnect.apple.com` is refused at
+   CONNECT (403). So every Apple call has to happen on the macOS runner, and the
+   owner has to add the secrets. Names, values and encodings are in
+   `docs/RELEASE_CHECKLIST.md` → *Supplying the signing credentials*. Nothing
+   about the build is waiting on code.
+2. **No Mac, no Xcode, no iOS SDK, no simulator in this session.** Code under
+   `App/` is compiled only by CI. Check the latest Actions run before claiming
+   the app builds.
+3. **No physical iPad or Pencil.** Every `device` row in `docs/VALIDATION.md`
+   and every performance target stays pending until someone runs them on
+   hardware.
 
 ## Commands
 
 ```bash
 export PATH=/opt/swift-root/usr/bin:$PATH        # Linux session toolchain (Swift 6.2.4)
 swift build
-swift test --parallel                             # all portable tests (203 at 3b105a5)
+swift test --parallel                             # all portable tests
 swift test --filter PersistenceTests              # one module
-swift build --scratch-path .build-<name> --target <Target>   # private scratch path per agent
-swift test  --scratch-path .build-<name> --filter <TargetTests>
 Scripts/test-linux.sh
 Scripts/generate-fixtures.sh
 # macOS with Xcode 16+ only:
-Scripts/build-ios.sh                               # xcodegen + simulator build/test
-Scripts/archive-ios.sh                             # unsigned archive
+Scripts/build-ios.sh                              # xcodegen + simulator build/test
+Scripts/check-test-results.sh Build/CourseleafTests.xcresult
+Scripts/install-appicon.py                        # icon from Design/app-icon-source.png
+# macOS + App Store Connect API key (see RELEASE_CHECKLIST):
+Scripts/release-ios.sh                            # signed device archive + IPA + assertions
+Scripts/upload-testflight.sh Build/export/Courseleaf.ipa
 ```
-
-## Blockers
-
-- **No Mac, no Xcode, no iOS SDK, no simulator in this session.** Code under
-  `App/` cannot be compiled here; it is written against public APIs and compiled
-  only by CI job `app-ios-simulator` (`.github/workflows/courseleaf.yml`), which is
-  the sole Xcode compile evidence. Check the latest Actions run before claiming
-  the app builds; no run has been inspected from this session.
-- **No physical iPad/Pencil.** Every `device` row in `docs/VALIDATION.md` and all
-  performance targets stay pending until someone runs them on hardware.
-- **Account-owner decisions outstanding:** public name, bundle ID, team/signing,
-  pricing mode and baseline iPad model (`docs/RELEASE_CHECKLIST.md` #2–#5, #15).
 
 ## Next actions
 
-1. Update `docs/FEATURE_REGISTER.md`: 47 rows still say "in progress" with
-   evidence text claiming the Workspace facade and App screens are unwritten.
-   They exist, compile and are tested. Re-assign each row honestly against the
-   legend, naming the test that earns the status.
-2. Broaden the simulator suite where a launch claim has no test yet: mixed
-   selection undo through the editor (A09 end to end), the 300-page document
-   opening with at most three live canvases (A06 at simulator level), and a
-   native archive round trip driven through `LibraryService`.
+1. Owner: add `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_BASE64`, then run
+   the **TestFlight** workflow with `dry_run: true` once to prove distribution
+   signing works, and again with `dry_run: false` to upload.
+2. Whatever the dry run reports about signing — most likely a missing
+   distribution certificate or an API key without the Admin/App Manager role —
+   fix per `docs/RELEASE_CHECKLIST.md`, never by revoking an existing
+   certificate.
 3. On a Mac with a physical iPad and Apple Pencil: the G0 feasibility checks and
    the A02, A03, A06, A16, A17 and A19 device gates, recording hardware, OS
-   build, fixture and method.
-4. Only then `Scripts/archive-ios.sh`, the release checklist, and the
-   account-dependent steps the owner must perform.
+   build, fixture and method in `docs/VALIDATION.md`.
+4. Replace the two placeholder links in `App/Courseleaf/Settings/SettingsView.swift`
+   (`https://example.invalid/...`) with the real support and privacy URLs before
+   any public submission. Harmless for internal testing; a rejection for review.
+5. Remaining launch work is in `docs/RELEASE_CHECKLIST.md`: accent colour,
+   launch screen, covers, onboarding, screenshots, privacy manifest audit,
+   metadata, review notes.
 
 ## Decisions that need the owner
 
-- Public name and bundle identifier.
-- Whether a one-time local unlock ships (and what it gates), or the app is free/paid.
-- Baseline iPad model for performance measurements.
+- Whether a one-time local unlock ships (and what it gates), or the app is free.
+- Baseline iPad model for the performance measurements.
+- Public support and privacy URLs.
