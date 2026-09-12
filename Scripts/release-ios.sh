@@ -56,7 +56,6 @@ xcodebuild archive \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
-  CODE_SIGN_IDENTITY="Apple Distribution" \
   MARKETING_VERSION="$MARKETING_VERSION" \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   ${XCODEBUILD_EXTRA:-} 2>&1 | tee "$BUILD/xcodebuild-archive.log" | (command -v xcbeautify >/dev/null && xcbeautify || cat)
