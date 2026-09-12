@@ -1,0 +1,380 @@
+import Foundation
+import UIKit
+import PencilKit
+import PDFKit
+import DocumentCore
+import PageGeometry
+import Editing
+
+@MainActor
+protocol PageCanvasViewHost: AnyObject {
+    /// A stroke or erase gesture finished, or PencilKit undid/redid one (check the undo manager state).
+    func canvasDrawingDidChange(_ canvas: PageCanvasView)
+    func canvasDidBeginUsingTool(_ canvas: PageCanvasView)
+    func canvas(_ canvas: PageCanvasView, tapeWantsRevealed id: ObjectID, revealed: Bool)
+    func canvas(_ canvas: PageCanvasView, didTapObject id: ObjectID, tapCount: Int)
+    func canvas(_ canvas: PageCanvasView, textEditingBegan id: ObjectID)
+    func canvas(_ canvas: PageCanvasView, textEditingEnded id: ObjectID, text: String, fittingHeight: Double)
+    /// A tap in reading mode (page space): follow a PDF link if one is there.
+    func canvas(_ canvas: PageCanvasView, readingModeTapAt point: PagePoint)
+}
+
+/// One live page (docs/ARCHITECTURE.md §4), back to front: tiled background,
+/// image objects, the PencilKit canvas, text/shape/tape objects, selection
+/// overlay. The view's frame is the page's frame in unzoomed content space,
+/// so every subview works in page points.
+final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegate {
+    let pageID: PageID
+    private(set) var page: Page
+    private(set) var mapping: PageMapping
+    weak var host: PageCanvasViewHost?
+    private weak var loader: PageContentLoader?
+
+    let background = PageBackgroundLayerView(frame: .zero)
+    let imageLayer = ImageObjectLayerView(frame: .zero)
+    let canvasView = PKCanvasView(frame: .zero)
+    let objectLayer = ObjectLayerView(frame: .zero)
+    let overlay = SelectionOverlayView(frame: .zero)
+    private let readingTap = UITapGestureRecognizer()
+
+    /// The ink asset the canvas drawing currently represents (nil = empty / never drawn).
+    private(set) var loadedInkAssetID: AssetID?
+    private(set) var hasLoadedInk = false
+    private var inkLoadTask: Task<Void, Never>?
+    private var backgroundTask: Task<Void, Never>?
+    private var backgroundKey: String = ""
+    /// Floating preview of ink strokes being dragged (strokes are temporarily removed from the canvas).
+    private var inkPreview: UIImageView?
+    private var inkPreviewOrigin: CGPoint = .zero
+    var isReadingMode = false { didSet { applyInteractionPolicy() } }
+    var activeTool: EditorTool = .ink(.pen) { didSet { applyInteractionPolicy() } }
+    var drawingEnabled = true { didSet { applyInteractionPolicy() } }
+    /// True while the host itself is setting the drawing so delegate callbacks are ignored.
+    private var isSettingDrawingProgrammatically = false
+
+    var inkLayerID: InkLayerID? { page.inkLayers.first?.id }
+    var currentInkAssetID: AssetID? { page.inkLayers.first?.dataAssetID }
+
+    init(page: Page, host: PageCanvasViewHost?, loader: PageContentLoader?) {
+        self.pageID = page.id
+        self.page = page
+        self.mapping = Self.mapping(for: page)
+        self.host = host
+        self.loader = loader
+        super.init(frame: CGRect(origin: .zero, size: CGSize(page.size)))
+        isOpaque = true
+        backgroundColor = .white
+        clipsToBounds = true
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 4
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+
+        for sub in [background, imageLayer, canvasView, objectLayer, overlay] as [UIView] {
+            sub.frame = bounds
+            sub.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(sub)
+        }
+        imageLayer.loader = loader
+        canvasView.backgroundColor = .clear
+        canvasView.isOpaque = false
+        canvasView.isScrollEnabled = false
+        canvasView.showsVerticalScrollIndicator = false
+        canvasView.showsHorizontalScrollIndicator = false
+        canvasView.delegate = self
+        canvasView.drawingPolicy = .pencilOnly
+        canvasView.accessibilityLabel = "Handwriting canvas"
+        canvasView.isUserInteractionEnabled = false   // until the ink asset has loaded
+        objectLayer.delegate = self
+        readingTap.addTarget(self, action: #selector(handleReadingTap(_:)))
+        readingTap.isEnabled = false
+        addGestureRecognizer(readingTap)
+        accessibilityLabel = "Page"
+        configure(with: page)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    static func mapping(for page: Page) -> PageMapping {
+        switch page.background {
+        case .pdf(let source): return PageMapping(source: source)
+        case .template, .image: return PageMapping(templateSize: page.size)
+        }
+    }
+
+    // MARK: Model updates
+
+    /// Full configuration (first load or background change).
+    func configure(with page: Page) {
+        self.page = page
+        mapping = Self.mapping(for: page)
+        let size = CGSize(page.size)
+        if bounds.size != size { bounds = CGRect(origin: .zero, size: size) }
+        reloadBackground()
+        imageLayer.update(objects: page.objects)
+        objectLayer.update(objects: page.objects)
+        reloadInkIfNeeded()
+        applyInteractionPolicy()
+    }
+
+    /// Applies a changed page value: objects are diffed, the background and
+    /// ink reload only when their identity changed.
+    func apply(page newPage: Page) {
+        let oldPage = page
+        page = newPage
+        if oldPage.background != newPage.background || oldPage.size != newPage.size {
+            mapping = Self.mapping(for: newPage)
+            let size = CGSize(newPage.size)
+            if bounds.size != size { bounds = CGRect(origin: .zero, size: size) }
+            reloadBackground()
+        }
+        if oldPage.objects != newPage.objects {
+            imageLayer.update(objects: newPage.objects)
+            objectLayer.update(objects: newPage.objects)
+        }
+        reloadInkIfNeeded()
+    }
+
+    private func reloadBackground() {
+        guard let loader else { background.content = .empty(paperColor: .white); return }
+        let key: String
+        switch page.background {
+        case .template(let t): key = "template-\(t.hashValue)-\(page.size.width)x\(page.size.height)"
+        case .pdf(let s): key = "pdf-\(s.assetID)-\(s.pageIndex)-\(s.rotation.rawValue)"
+        case .image(let id): key = "image-\(id)"
+        }
+        guard key != backgroundKey else { return }
+        backgroundKey = key
+        backgroundTask?.cancel()
+        let page = self.page
+        backgroundTask = Task { [weak self] in
+            let content = await PageContentResolver.background(for: page, loader: loader)
+            guard !Task.isCancelled, let self, self.backgroundKey == key else { return }
+            self.background.content = content
+        }
+    }
+
+    private func reloadInkIfNeeded() {
+        let target = currentInkAssetID
+        if hasLoadedInk, target == loadedInkAssetID { return }
+        inkLoadTask?.cancel()
+        guard let target else {
+            setDrawing(PKDrawing(), assetID: nil)
+            return
+        }
+        if let loader, let cached = loader.decoded.drawing(for: target) {
+            setDrawing(cached, assetID: target)
+            return
+        }
+        guard let loader else { setDrawing(PKDrawing(), assetID: nil); return }
+        inkLoadTask = Task { [weak self] in
+            let drawing = await loader.drawing(for: target)
+            guard !Task.isCancelled, let self, self.currentInkAssetID == target else { return }
+            self.setDrawing(drawing ?? PKDrawing(), assetID: target)
+        }
+    }
+
+    /// Sets the canvas drawing without going through PencilKit's undo.
+    func setDrawing(_ drawing: PKDrawing, assetID: AssetID?) {
+        isSettingDrawingProgrammatically = true
+        canvasView.drawing = drawing
+        isSettingDrawingProgrammatically = false
+        loadedInkAssetID = assetID
+        hasLoadedInk = true
+        applyInteractionPolicy()
+    }
+
+    /// The host committed the current canvas drawing as `assetID` (after a stroke or a selection edit).
+    func noteInkCommitted(assetID: AssetID?) {
+        loadedInkAssetID = assetID
+        hasLoadedInk = true
+    }
+
+    var drawing: PKDrawing { canvasView.drawing }
+
+    // MARK: Tools and interaction
+
+    func setPencilKitTool(_ tool: PKTool?) {
+        if let tool { canvasView.tool = tool }
+    }
+
+    func setDrawingPolicy(_ policy: PKCanvasViewDrawingPolicy) {
+        canvasView.drawingPolicy = policy
+    }
+
+    private func applyInteractionPolicy() {
+        let inkActive = activeTool.isInkTool && !isReadingMode && drawingEnabled && hasLoadedInk
+        canvasView.isUserInteractionEnabled = inkActive
+        canvasView.drawingGestureRecognizer.isEnabled = inkActive
+        objectLayer.isReadingMode = isReadingMode
+        objectLayer.objectsInteractive = !isReadingMode && (activeTool == .lasso || activeTool == .text)
+        overlay.isReadingMode = isReadingMode
+        overlay.acceptsDrags = !isReadingMode && activeTool.usesOverlayDrag
+        readingTap.isEnabled = isReadingMode
+        if !(activeTool == .lasso || activeTool == .text) { objectLayer.endTextEditing() }
+    }
+
+    /// Called after zooming so vector content renders sharply at the on-screen scale.
+    func setDisplayZoom(_ zoom: CGFloat, screenScale: CGFloat) {
+        overlay.displayZoom = zoom
+        objectLayer.setShapeHitTolerance(8 / max(zoom, 0.01))
+        // Bound the canvas's backing store: a letter page at 4x Retina is ~31 MB.
+        let scale = min(screenScale * max(zoom, 1), 4)
+        if canvasView.contentScaleFactor != scale {
+            canvasView.contentScaleFactor = scale
+            for sub in canvasView.subviews { sub.contentScaleFactor = scale }
+        }
+    }
+
+    // MARK: Ink drag preview
+
+    /// Removes the strokes from the canvas (no undo registration) and shows
+    /// them as a floating image that follows a transform preview.
+    func beginInkPreview(strokeIndices: [Int], screenScale: CGFloat, zoom: CGFloat) -> PKDrawing {
+        endInkPreview()
+        let all = PencilKitDrawing(drawing: canvasView.drawing)
+        let extracted = all.extractingStrokes(strokeIndices)
+        guard !extracted.isEmpty else { return extracted.drawing }
+        let remaining = all.removingStrokes(strokeIndices)
+        isSettingDrawingProgrammatically = true
+        canvasView.drawing = remaining.drawing
+        isSettingDrawingProgrammatically = false
+        let bounds = extracted.drawing.bounds.insetBy(dx: -4, dy: -4)
+        let image = extracted.drawing.image(from: bounds, scale: min(screenScale * max(zoom, 1), 4))
+        let view = UIImageView(image: image)
+        view.frame = bounds
+        view.layer.anchorPoint = .zero
+        view.layer.position = bounds.origin
+        inkPreviewOrigin = bounds.origin
+        insertSubview(view, aboveSubview: canvasView)
+        inkPreview = view
+        return extracted.drawing
+    }
+
+    func updateInkPreview(transform: PageTransform) {
+        inkPreview?.layer.setAffineTransform(transform.layerTransform(forLayerOrigin: PagePoint(inkPreviewOrigin)))
+    }
+
+    /// Removes the floating preview. The caller sets the final drawing afterwards.
+    func endInkPreview() {
+        inkPreview?.removeFromSuperview()
+        inkPreview = nil
+    }
+
+    /// Restores a drawing after a cancelled drag (no undo registration).
+    func restoreDrawingAfterCancelledPreview(_ drawing: PKDrawing) {
+        endInkPreview()
+        isSettingDrawingProgrammatically = true
+        canvasView.drawing = drawing
+        isSettingDrawingProgrammatically = false
+    }
+
+    func prepareForReuse() {
+        inkLoadTask?.cancel()
+        backgroundTask?.cancel()
+        imageLayer.cancelLoads()
+        objectLayer.endTextEditing()
+        endInkPreview()
+    }
+
+    // MARK: PKCanvasViewDelegate
+
+    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        guard !isSettingDrawingProgrammatically else { return }
+        host?.canvasDrawingDidChange(self)
+    }
+
+    func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        host?.canvasDidBeginUsingTool(self)
+    }
+
+    // MARK: ObjectLayerViewDelegate
+
+    func objectLayer(_ layer: ObjectLayerView, didTap objectID: ObjectID, tapCount: Int) {
+        host?.canvas(self, didTapObject: objectID, tapCount: tapCount)
+    }
+
+    func objectLayer(_ layer: ObjectLayerView, tapeWantsRevealed objectID: ObjectID, revealed: Bool) {
+        host?.canvas(self, tapeWantsRevealed: objectID, revealed: revealed)
+    }
+
+    func objectLayer(_ layer: ObjectLayerView, textEditingBegan objectID: ObjectID) {
+        host?.canvas(self, textEditingBegan: objectID)
+    }
+
+    func objectLayer(_ layer: ObjectLayerView, textEditingEnded objectID: ObjectID, text: String, fittingHeight: Double) {
+        host?.canvas(self, textEditingEnded: objectID, text: text, fittingHeight: fittingHeight)
+    }
+
+    // MARK: Reading mode
+
+    @objc private func handleReadingTap(_ gesture: UITapGestureRecognizer) {
+        guard isReadingMode else { return }
+        host?.canvas(self, readingModeTapAt: PagePoint(gesture.location(in: self)))
+    }
+
+    /// The PDF link annotation under a page-space point, if any.
+    func linkAnnotation(at point: PagePoint) -> PDFAnnotation? {
+        guard case .pdf(let source) = page.background, let loader,
+              let document = loader.pdfDocuments.cachedDocument(for: source.assetID),
+              let pdfPage = document.page(at: source.pageIndex) else { return nil }
+        let user = mapping.pdfUserPoint(fromPage: point)
+        guard let annotation = pdfPage.annotation(at: CGPoint(user)) else { return nil }
+        let isLink = annotation.type == "Link" || annotation.url != nil || annotation.destination != nil || annotation.action != nil
+        return isLink ? annotation : nil
+    }
+}
+
+/// A non-live page: a cached thumbnail and the page number.
+final class PagePlaceholderView: UIView {
+    let pageID: PageID
+    private let imageView = UIImageView()
+    private let label = UILabel()
+    private var requestedKey: String?
+
+    init(pageID: PageID) {
+        self.pageID = pageID
+        super.init(frame: .zero)
+        backgroundColor = .white
+        isOpaque = true
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 4
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+        imageView.contentMode = .scaleToFill
+        imageView.frame = bounds
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(imageView)
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.textColor = .tertiaryLabel
+        label.textAlignment = .center
+        label.frame = bounds
+        label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(label)
+        isAccessibilityElement = true
+        accessibilityTraits = .image
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func configure(page: Page, pageNumber: Int, thumbnails: ThumbnailCache) {
+        accessibilityLabel = "Page \(pageNumber)"
+        label.text = "\(pageNumber)"
+        label.isHidden = imageView.image != nil
+        let size = CGSize(width: 240, height: max(1, 240 * page.size.height / max(page.size.width, 1)))
+        let key = ThumbnailCache.key(for: page, size: size)
+        if let cached = thumbnails.cachedImage(for: page, size: size) {
+            imageView.image = cached
+            label.isHidden = true
+            requestedKey = key
+            return
+        }
+        guard requestedKey != key else { return }
+        requestedKey = key
+        thumbnails.requestImage(for: page, size: size) { [weak self] image in
+            guard let self, self.requestedKey == key, let image else { return }
+            self.imageView.image = image
+            self.label.isHidden = true
+        }
+    }
+}

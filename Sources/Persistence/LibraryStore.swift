@@ -360,6 +360,17 @@ public actor LibraryStore {
         return folder
     }
 
+    /// Adds a folder record with the identity it already carries (a backup
+    /// restore keeps folder ids so restored documents stay filed). Fails when
+    /// the id exists or the parent is unknown.
+    public func addFolder(_ folder: Folder) throws {
+        var manifest = try loaded()
+        guard manifest.folder(folder.id) == nil else { throw PersistenceError.alreadyExists(path: "folder \(folder.id)") }
+        if let parentID = folder.parentID, manifest.folder(parentID) == nil { throw PersistenceError.notFound("folder \(parentID)") }
+        manifest.folders.append(folder)
+        try saveManifest(manifest)
+    }
+
     public func updateFolder(_ folder: Folder) throws {
         var manifest = try loaded()
         guard let index = manifest.folders.firstIndex(where: { $0.id == folder.id }) else { throw PersistenceError.notFound("folder \(folder.id)") }

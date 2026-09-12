@@ -534,3 +534,38 @@ extension DocumentEditor {
         if count > 0, s.document.lastViewedPageIndex >= count { s.document.lastViewedPageIndex = count - 1 }
     }
 }
+
+// MARK: - Commit feedback (used by the Workspace session)
+
+extension DocumentEditor {
+    /// Adopts the revision identifiers Persistence assigned when a commit
+    /// succeeded: the new `revisionHead`, the revision table, and the revision
+    /// of every page the commit wrote. Undo history and pending changes are
+    /// untouched, so a page edited while the commit was in flight is still
+    /// pending and is rewritten (under a newer revision) by the next commit.
+    /// Without this feedback every later commit would rewrite every page,
+    /// because the page records would keep naming a revision the manifest no
+    /// longer lists.
+    public func adoptCommittedRevisions(from committed: DocumentSnapshot, pagesWritten: [PageID]) {
+        var working = snapshot
+        working.document.revisionHead = committed.document.revisionHead
+        working.document.schemaVersion = committed.document.schemaVersion
+        for id in pagesWritten {
+            guard working.pages[id] != nil, let revisionID = committed.pages[id]?.revisionID else { continue }
+            working.pages[id]!.revisionID = revisionID
+        }
+        working.revisions = committed.revisions
+        setSnapshot(working)
+    }
+
+    /// Non-undoable library filing change (folder membership is a library
+    /// operation, not an edit); marks the document changed so the next commit
+    /// persists it. Needed while the document is open, because a commit writes
+    /// the whole `Document` value and would otherwise undo a move made on disk.
+    public func setFolderID(_ folderID: FolderID?) {
+        var working = snapshot
+        working.document.folderID = folderID
+        setSnapshot(working)
+        mergePending(ChangeSet(documentChanged: true))
+    }
+}

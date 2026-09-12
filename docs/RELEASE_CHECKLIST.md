@@ -11,7 +11,7 @@ on an owner step), `done`, `blocked (reason)`.
 
 | # | Step | Owner | Status | Notes |
 |---|---|---|---|---|
-| 1 | Finish and verify launch gates G0–G6 (`docs/FEATURE_REGISTER.md`, `docs/VALIDATION.md` A01–A20) | developer | in progress | Device gates A02, A03, A16 (no Pencil), A17, A19 need a physical iPad |
+| 1 | Finish and verify launch gates G0–G6 (`docs/FEATURE_REGISTER.md`, `docs/VALIDATION.md` A01–A20) | developer | in progress | At `3b105a5` the core package passes 203 portable tests; Workspace and every `App/` screen are unwritten. Device gates A02, A03, A16 (no Pencil), A17, A19 need a physical iPad |
 | 2 | Choose the public product name (Courseleaf is a codename) and check trademark/App Store name availability | account owner | not started | Name feeds `CFBundleDisplayName`, metadata, support page and privacy policy |
 | 3 | Bundle identifier and exported type identifier | account owner | not started | Placeholders `dev.courseleaf.app`, `dev.courseleaf.archive` in `App/project.yml`; change together and update the `.courseleaf` UTI if the name changes |
 | 4 | Team ID and signing (Automatic signing, distribution certificate, provisioning) | account owner | not started | `DEVELOPMENT_TEAM` is empty in `App/project.yml`; never invented by the developer |
@@ -34,6 +34,7 @@ on an owner step), `done`, `blocked (reason)`.
 | 21 | Release build: `Scripts/archive-ios.sh` (unsigned archive) then a signed archive with the owner's team in Xcode | developer (Mac) then account owner | blocked (no Mac in session) | Record `xcodebuild -version`, SDK and the source commit in `VALIDATION.md` |
 | 22 | Upload to App Store Connect, TestFlight round, submit for review | account owner | not started | Explicit authorization required; do not submit from a coding session |
 | 23 | Post-submission: tag the commit, archive the `.xcarchive` and dSYMs, update `docs/NEXT_SESSION.md` | developer | not started | |
+| 24 | CI green on the release commit: `core-linux` and `app-ios-simulator` (`.github/workflows/courseleaf.yml`) | developer | not started | `core-linux` equivalent passes locally at `3b105a5`; `app-ios-simulator` cannot pass until `App/` screens exist. Record both run URLs in `VALIDATION.md` A20; no CI run has been inspected from this session |
 
 ## Definition of "ready to submit"
 

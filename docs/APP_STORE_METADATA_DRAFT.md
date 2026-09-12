@@ -58,7 +58,7 @@ YOUR FILES, YOUR IPAD
 • Visible save status: "Saved" means saved
 • Recoverable trash for pages and notebooks
 • Export PDFs and images, print, or export editable archives
-• One-tap full library backup and verified restore
+• Full library backup to a location you choose, with verified restore
 
 WHAT IT IS NOT
 No account, no cloud sync, no AI, no audio recording, no flashcards. It is a

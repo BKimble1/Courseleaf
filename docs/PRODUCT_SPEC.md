@@ -4,7 +4,9 @@ What the first Courseleaf release does, screen by screen, and what it deliberate
 does not do. "Courseleaf" is a codename; the public name is chosen at release
 (`docs/RELEASE_CHECKLIST.md`). Behaviour described here is the target the code in
 `Sources/` and `App/` is written to; verification status lives in
-`docs/FEATURE_REGISTER.md` and `docs/VALIDATION.md`, never here.
+`docs/FEATURE_REGISTER.md` and `docs/VALIDATION.md`, never here. Names of
+templates, statuses, export formats and selection actions below match the
+`DocumentCore`, `Editing` and `Workspace` contracts at commit `3b105a5`.
 
 ## 1. Product in one paragraph
 

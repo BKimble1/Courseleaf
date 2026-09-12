@@ -12,7 +12,7 @@ owner; do not publish with placeholders.
 coursework and reviewing your own problem work. Your notes stay on your iPad.
 
 **Contact:** [SUPPORT EMAIL]. Please include your iPad model, iPadOS version and
-the app version from Settings → About. Do not send notebooks unless we ask; if we
+the app version from Settings → Support. Do not send notebooks unless we ask; if we
 do, export a copy of the single affected notebook as a `.courseleaf` archive.
 
 ## Getting started
@@ -84,7 +84,8 @@ See the in-app guide under Import → Bring in notes from another app.
 - **A notebook shows "Needs a newer version":** it was created by a newer app
   version. Update the app; the notebook is not changed or emptied.
 - **Search results are missing for a scanned page:** wait for indexing to finish
-  (Settings → Storage shows progress) or rebuild the index.
+  (the Search screen shows how many pages are still being indexed) or rebuild the
+  index from Settings → Storage.
 - **Pencil draws nothing:** check Settings → Input → Pencil-only drawing, and that
   the Pencil is paired and charged. In reading mode drawing is disabled.
 - **Camera or photo access was denied:** allow it in iPadOS Settings → Privacy &
