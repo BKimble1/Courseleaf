@@ -38,41 +38,41 @@ jobs:
         if: always()
         shell: bash
         run: |
-          python3 - "$GITHUB_STEP_SUMMARY" <<'PY'
-          import glob, sys, xml.etree.ElementTree as ET
-          out = open(sys.argv[1], "a") if len(sys.argv) > 1 else sys.stdout
-          def say(line):
-              print(line)
-              print(line, file=out)
-          files = sorted(glob.glob("test-results*.xml"))
-          if not files:
-              say("FAIL: swift test wrote no xUnit report, so nothing is proven")
-              raise SystemExit(1)
-          total = failures = errors = 0
-          names = []
-          for path in files:
-              root = ET.parse(path).getroot()
-              suites = root.iter("testsuite")
-              for suite in suites:
-                  total += int(suite.get("tests", 0))
-                  failures += int(suite.get("failures", 0))
-                  errors += int(suite.get("errors", 0))
-              for case in root.iter("testcase"):
-                  for bad in list(case.iter("failure")) + list(case.iter("error")):
-                      names.append(f"{case.get('classname','?')}.{case.get('name','?')}: "
-                                   f"{(bad.get('message') or '')[:200]}")
-          say("## Core package (Linux)")
-          say(f"- files: {', '.join(files)}")
-          say(f"- total: {total}, failures: {failures}, errors: {errors}")
-          for name in names[:25]:
-              say(f"  - FAILED {name}")
-          if total == 0:
-              say("FAIL: no tests executed; a passing job with zero tests is not evidence")
-              raise SystemExit(1)
-          if failures or errors:
-              raise SystemExit(f"FAIL: {failures} failure(s), {errors} error(s)")
-          say(f"\nOK: {total} tests executed, 0 failed.")
-          PY
+          # Shell, not python3: the swift:6.2-noble image has no python3, and a
+          # verdict step that cannot run is a verdict nobody gets.
+          shopt -s nullglob
+          files=(test-results*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "FAIL: swift test wrote no xUnit report, so nothing is proven" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          # Sum only the <testsuite> elements; the <testsuites> root would double-count.
+          # Each stage tolerates "no match" so the step reports a zero total
+          # rather than dying under `set -e` and leaving no verdict at all.
+          attrsum() {
+            { grep -ho '<testsuite [^>]*>' "${files[@]}" || true; } \
+              | { grep -o "$1=\"[0-9]*\"" || true; } \
+              | tr -dc '0-9\n' \
+              | awk '{ s += $1 } END { print s + 0 }'
+          }
+          total=$(attrsum tests)
+          failures=$(attrsum failures)
+          errors=$(attrsum errors)
+          {
+            echo "## Core package (Linux)"
+            echo "- report: ${files[*]}"
+            echo "- total: $total, failures: $failures, errors: $errors"
+            grep -ho '<failure message="[^"]*"' "${files[@]}" | head -25 | sed 's/^/  - /' || true
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$total" -eq 0 ]; then
+            echo "FAIL: no tests executed; a passing job with zero tests is not evidence" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$failures" -ne 0 ] || [ "$errors" -ne 0 ]; then
+            echo "FAIL: $failures failure(s), $errors error(s)" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "OK: $total tests executed, 0 failed." | tee -a "$GITHUB_STEP_SUMMARY"
 
   app-ios-simulator:
     name: iPad app (macOS, Xcode, simulator)

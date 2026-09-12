@@ -104,11 +104,16 @@ struct NotebookEditorView: View {
             }
             .sheet(isPresented: $chrome.isShowingExport) {
                 if let pageID {
-                    ExportSheet(session: session, currentPageID: pageID) { [chrome] in
+                    ExportSheet(session: session, currentPageID: pageID) { [chrome, session] in
                         // Export reads the document, so the document has to be
-                        // what is on screen first.
-                        guard let controller = chrome.controller else { return nil }
-                        return await controller.prepareForDocumentSnapshot()
+                        // what is on screen first. If the editor is already
+                        // gone there is nothing in a view to finish, but the
+                        // document still has to be made durable — reporting
+                        // success without saving would be the worse failure.
+                        if let controller = chrome.controller {
+                            return await controller.prepareForDocumentSnapshot()
+                        }
+                        do { try await session.flush(); return nil } catch { return error }
                     }
                 }
             }
@@ -149,6 +154,10 @@ struct EditorHost: UIViewControllerRepresentable {
         controller.onSaveFailure = { error in
             environment.present(error, title: "This notebook could not be saved")
         }
+        controller.onScrollDirectionChange = { isHorizontal in
+            environment.settings.horizontalPaging = isHorizontal
+        }
+        controller.isHorizontalPaging = appEnvironment.settings.horizontalPaging
         controller.onReadingModeChange = { value in
             DispatchQueue.main.async {
                 if chrome.isReadingMode != value { chrome.isReadingMode = value }
@@ -161,5 +170,11 @@ struct EditorHost: UIViewControllerRepresentable {
         chrome.controller = controller
         controller.inputSettings = settings
         controller.isReadingMode = isReadingMode
+    }
+
+    /// SwiftUI's own teardown hook, and the main-actor-safe place to give the
+    /// session's callbacks back.
+    static func dismantleUIViewController(_ controller: NotebookEditorViewController, coordinator: ()) {
+        controller.detachFromSession()
     }
 }

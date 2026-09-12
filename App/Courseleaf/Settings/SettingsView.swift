@@ -107,6 +107,14 @@ struct SettingsView: View {
                     } label: {
                         Label("Show the welcome screens again", systemImage: "sparkles")
                     }
+                    Button(role: .destructive) {
+                        // Only the pens: nothing here touches a notebook.
+                        EditorToolStateStore().reset()
+                    } label: {
+                        Label("Reset pens and favourites", systemImage: "arrow.counterclockwise")
+                    }
+                } footer: {
+                    Text("Resetting pens puts the toolbar back to Courseleaf's own colours, widths and favourites. Your notebooks are not touched.")
                 }
             }
             .navigationTitle("Settings")

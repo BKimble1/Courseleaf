@@ -39,6 +39,9 @@ final class NotebookEditorViewController: UIViewController {
     var onReadingModeChange: ((Bool) -> Void)?
     /// Called when an explicit save could not complete, so the shell can say so.
     var onSaveFailure: ((Error) -> Void)?
+    /// Called when the student chooses vertical or horizontal paging, so the
+    /// choice is remembered rather than reset on the next notebook.
+    var onScrollDirectionChange: ((Bool) -> Void)?
 
     // MARK: State
 
@@ -165,6 +168,19 @@ final class NotebookEditorViewController: UIViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Hands the session's callbacks back to whoever had them. The editor chains
+    /// onto `onChange` when it opens; without this the app's background
+    /// recognition queue stays detached for the rest of the session once a
+    /// notebook has been closed once. Called from SwiftUI's dismantle hook
+    /// rather than `deinit`, which is not main-actor isolated.
+    func detachFromSession() {
+        if let previousChangeHandler { session.onChange = previousChangeHandler }
+        if let previousSaveStatusHandler { session.onSaveStatusChange = previousSaveStatusHandler }
+        previousChangeHandler = nil
+        previousSaveStatusHandler = nil
+        for canvas in liveCanvases { canvas.strokeSampler.clear() }
     }
 
     override func viewDidLoad() {
@@ -294,7 +310,10 @@ final class NotebookEditorViewController: UIViewController {
         infoStack.addArrangedSubview(pageLabel)
         infoStack.addArrangedSubview(saveStatusView)
         infoStack.setContentHuggingPriority(.required, for: .horizontal)
-        infoStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Not `.required`: at an accessibility text size the page label would
+        // otherwise refuse to give way and push the writing controls off the
+        // bar. The toolbar scrolls; the label is what should shrink first.
+        infoStack.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         editorToolbar.delegate = self
         editorToolbar.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -688,6 +707,13 @@ final class NotebookEditorViewController: UIViewController {
 
     private func applyInkCommit(canvas: PageCanvasView, assetID: AssetID?, generation: Int) {
         let pageID = canvas.pageID
+        guard session.editor.page(pageID) != nil else {
+            // The page was deleted while this was in flight. Writing to it would
+            // throw and put an alert in front of the student about a page they
+            // just chose to remove.
+            canvas.noteInkCommitted(assetID: canvas.currentInkAssetID, generation: generation)
+            return
+        }
         guard let layerID = canvas.inkLayerID else {
             // Nowhere to write it: the page has no ink layer, so there is
             // nothing outstanding for this page and no reason to keep retrying.
@@ -777,20 +803,22 @@ final class NotebookEditorViewController: UIViewController {
     /// undone until the save debounce happened to have fired.
     func performUndo() {
         endActiveEditing()
+        defer { refreshSystemUndoBridge(); updateChromeState() }
         guard session.canUndo else { return }
         session.undo()
         discardInkUndoRegistrations()
-        refreshSystemUndoBridge()
-        updateChromeState()
     }
 
+    /// Redo after `endActiveEditing` may find nothing left to redo, because
+    /// committing the stroke the student had just drawn is a new edit and a new
+    /// edit clears the redo stack. That is the right answer; the `defer` is
+    /// what stops the button from going on claiming otherwise.
     func performRedo() {
         endActiveEditing()
+        defer { refreshSystemUndoBridge(); updateChromeState() }
         guard session.canRedo else { return }
         session.redo()
         discardInkUndoRegistrations()
-        refreshSystemUndoBridge()
-        updateChromeState()
     }
 
     /// Finishes anything a UIKit view is still holding: the text box being
@@ -1014,6 +1042,20 @@ final class NotebookEditorViewController: UIViewController {
         for command in [undo, redo, zoomIn, zoomInAlt, zoomOut, zoomFit] {
             command.wantsPriorityOverSystemBehavior = true
         }
+        // Tool shortcuts, which PRODUCT_SPEC §3.2 and F018 have claimed for a
+        // while without anything implementing them. Command-modified so they
+        // cannot be confused with typing, and the guard above means they stand
+        // down entirely while a text box has the keyboard.
+        let toolKeys: [(String, EditorTool, String)] = [
+            ("1", .ink(.pen), "Pen"), ("2", .ink(.pencil), "Pencil"), ("3", .ink(.highlighter), "Highlighter"),
+            ("4", .eraser, "Eraser"), ("5", .lasso, "Lasso"), ("6", .shape(toolState.lastShapeKind), "Shape"),
+        ]
+        let toolCommands = toolKeys.map { input, tool, title -> UIKeyCommand in
+            let command = UIKeyCommand(title: title, action: #selector(handleToolKey(_:)), input: input,
+                                       modifierFlags: .command, propertyList: input)
+            command.wantsPriorityOverSystemBehavior = true
+            return command
+        }
         let selectAll = UIKeyCommand(title: "Select All", action: #selector(handleSelectAllKey), input: "a", modifierFlags: .command)
         let deselect = UIKeyCommand(action: #selector(handleEscapeKey), input: UIKeyCommand.inputEscape, modifierFlags: [])
         let next = UIKeyCommand(title: "Next Page", action: #selector(handleNextPageKey), input: UIKeyCommand.inputDownArrow, modifierFlags: [])
@@ -1023,7 +1065,24 @@ final class NotebookEditorViewController: UIViewController {
         let pageDown = UIKeyCommand(action: #selector(handleNextPageKey), input: UIKeyCommand.inputPageDown, modifierFlags: [])
         let pageUp = UIKeyCommand(action: #selector(handlePreviousPageKey), input: UIKeyCommand.inputPageUp, modifierFlags: [])
         return [undo, redo, zoomIn, zoomInAlt, zoomOut, zoomFit, selectAll, deselect,
-                next, previous, nextRight, previousLeft, pageDown, pageUp]
+                next, previous, nextRight, previousLeft, pageDown, pageUp] + toolCommands
+    }
+
+    @objc private func handleToolKey(_ sender: UIKeyCommand) {
+        guard !isReadingMode, let input = sender.propertyList as? String else { return }
+        let tool: EditorTool
+        switch input {
+        case "1": tool = .ink(.pen)
+        case "2": tool = .ink(.pencil)
+        case "3": tool = .ink(.highlighter)
+        case "4": tool = .eraser
+        case "5": tool = .lasso
+        case "6": tool = .shape(toolState.lastShapeKind)
+        default: return
+        }
+        var state = toolState
+        state.select(tool)
+        toolState = state
     }
 
     @objc private func handleUndoKey() { performUndo() }
@@ -1410,6 +1469,7 @@ extension NotebookEditorViewController: EditorToolbarDelegate {
 
     func toolbar(_ toolbar: EditorToolbar, didChooseLayout isHorizontalPaging: Bool) {
         self.isHorizontalPaging = isHorizontalPaging
+        onScrollDirectionChange?(isHorizontalPaging)
     }
 
     func toolbarDidRequestClearPage(_ toolbar: EditorToolbar) {

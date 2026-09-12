@@ -159,7 +159,7 @@ final class EditorToolStateMigrationTests: XCTestCase {
         let before = state.favorites.count
         state.addFavoriteFromCurrentTool()
         XCTAssertEqual(state.favorites.count, before + 1)
-        XCTAssertEqual(state.favorites.last?.width, 9, accuracy: 0.001)
+        XCTAssertEqual(state.favorites.last?.width ?? 0, 9, accuracy: 0.001)
         XCTAssertEqual(state.matchingFavorite?.id, state.favorites.last?.id)
 
         // Adding the same configuration twice is a no-op, not a duplicate row.

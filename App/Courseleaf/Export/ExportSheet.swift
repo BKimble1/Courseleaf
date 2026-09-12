@@ -17,13 +17,11 @@ struct ExportSheet: View {
     /// the document durable, then reports what stopped it. `session.flush()`
     /// alone is not enough: a stroke that has not left its `PKCanvasView` and a
     /// word still in a `UITextView` are not in the snapshot an exporter reads.
-    var prepare: (() async -> Error?)?
-
-    init(session: any DocumentSessioning, currentPageID: PageID?, prepare: (() async -> Error?)? = nil) {
-        self.session = session
-        self.currentPageID = currentPageID
-        self.prepare = prepare
-    }
+    ///
+    /// Deliberately not optional and without a default. An export that skips
+    /// this reads a document that is not what is on screen, and a parameter
+    /// that can be left out is a parameter that will be.
+    let prepare: () async -> Error?
 
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -190,18 +188,24 @@ struct ExportSheet: View {
         }
     }
 
+    /// True when "a range of pages" names a range this notebook does not have.
+    private var isPageRangeInvalid: Bool {
+        guard range == .selection else { return false }
+        return selectedPageIDs() == nil
+    }
+
     private func export() async {
+        guard !isPageRangeInvalid else {
+            failure = "Pages \(firstPage) to \(lastPage) are not in this notebook. Choose a range inside 1 to \(session.editor.document.pageIDs.count)."
+            return
+        }
         isWorking = true
         progress = 0
         failure = nil
         producedURLs = []
         defer { isWorking = false }
         do {
-            if let prepare {
-                if let error = await prepare() { throw error }
-            } else {
-                try await session.flush()
-            }
+            if let error = await prepare() { throw error }
             let directory = try makeExportDirectory()
             let stem = safeStem(documentTitle)
             switch format {

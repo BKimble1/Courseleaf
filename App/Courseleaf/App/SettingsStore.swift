@@ -38,6 +38,7 @@ final class SettingsStore {
         static let scribbleErase = "settings.input.scribbleErase"
         static let shapeCorrection = "settings.input.shapeCorrection"
         static let snapShapes = "settings.input.snapShapes"
+        static let horizontalPaging = "settings.editor.horizontalPaging"
         static let defaultPaperKind = "settings.paper.defaultKind"
         static let defaultPageSize = "settings.paper.defaultPageSize"
         static let appearance = "settings.appearance"
@@ -54,6 +55,7 @@ final class SettingsStore {
         var scribbleErase = false
         var shapeCorrection = true
         var snapShapes = true
+        var horizontalPaging = false
         var defaultPaperKind: PaperKind = .lined
         var defaultPageSize: PageSizeChoice = .letter
         var appearance: Appearance = .system
@@ -73,6 +75,7 @@ final class SettingsStore {
         if defaults.object(forKey: Keys.scribbleErase) != nil { loaded.scribbleErase = defaults.bool(forKey: Keys.scribbleErase) }
         if defaults.object(forKey: Keys.shapeCorrection) != nil { loaded.shapeCorrection = defaults.bool(forKey: Keys.shapeCorrection) }
         if defaults.object(forKey: Keys.snapShapes) != nil { loaded.snapShapes = defaults.bool(forKey: Keys.snapShapes) }
+        if defaults.object(forKey: Keys.horizontalPaging) != nil { loaded.horizontalPaging = defaults.bool(forKey: Keys.horizontalPaging) }
         if let raw = defaults.string(forKey: Keys.defaultPaperKind), let kind = PaperKind(rawValue: raw) { loaded.defaultPaperKind = kind }
         if let raw = defaults.string(forKey: Keys.defaultPageSize), let size = PageSizeChoice(rawValue: raw) { loaded.defaultPageSize = size }
         if let raw = defaults.string(forKey: Keys.appearance), let appearance = Appearance(rawValue: raw) { loaded.appearance = appearance }
@@ -118,6 +121,14 @@ final class SettingsStore {
     var snapShapes: Bool {
         get { values.snapShapes }
         set { values.snapShapes = newValue; defaults.set(newValue, forKey: Keys.snapShapes) }
+    }
+
+    /// Horizontal paging instead of one continuous scroll. Chosen from the
+    /// editor's More menu and remembered, because a student who wants pages
+    /// wants them in every notebook, not just the one they were in.
+    var horizontalPaging: Bool {
+        get { values.horizontalPaging }
+        set { values.horizontalPaging = newValue; defaults.set(newValue, forKey: Keys.horizontalPaging) }
     }
 
     // MARK: Paper defaults
@@ -172,6 +183,7 @@ final class SettingsStore {
         scribbleErase = false
         shapeCorrection = true
         snapShapes = true
+        horizontalPaging = false
         defaultPaperKind = .lined
         defaultPageSize = .letter
         appearance = .system
