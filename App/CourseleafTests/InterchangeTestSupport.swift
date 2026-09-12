@@ -75,15 +75,18 @@ struct PixelSampler {
     private let bytes: [UInt8]
 
     init(cgImage: CGImage, scale: CGFloat) {
-        width = cgImage.width
-        height = cgImage.height
+        // Local copies: the closure below must not capture `self` while `bytes`
+        // is still uninitialized.
+        let w = cgImage.width, h = cgImage.height
+        width = w
+        height = h
         self.scale = scale
-        var data = [UInt8](repeating: 0, count: width * height * 4)
+        var data = [UInt8](repeating: 0, count: w * h * 4)
         let space = CGColorSpaceCreateDeviceRGB()
         data.withUnsafeMutableBytes { buffer in
-            guard let ctx = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            guard let ctx = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                       space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         }
         bytes = data
     }
