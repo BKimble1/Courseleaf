@@ -85,6 +85,10 @@ targets:
   CourseleafTests:
     type: bundle.unit-test
     platform: iOS
+    # Without explicit destinations the test bundle is not eligible for the
+    # iPad simulator destination, and `xcodebuild test` runs zero tests while
+    # still exiting 0.
+    supportedDestinations: [iOS]
     sources: [CourseleafTests]
     dependencies:
       - target: Courseleaf

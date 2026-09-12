@@ -70,6 +70,10 @@ jobs:
               print(f"- device: {dev.get('deviceName','?')} ({dev.get('platform','?')} {dev.get('osVersion','?')})")
           for f in d.get("testFailures", [])[:20]:
               print(f"  - FAILED {f.get('testName','?')}: {f.get('failureText','')[:200]}")
+          # A run that executes nothing must not read as success. This guard exists
+          # because a green job once reported totalTestCount 0.
+          if not isinstance(total, int) or total == 0:
+              raise SystemExit("no tests executed on the simulator; a passing job with zero tests is not evidence")
           PY
           else
             echo "xcresulttool summary unavailable" | tee -a "$GITHUB_STEP_SUMMARY"
