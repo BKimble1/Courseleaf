@@ -20,7 +20,11 @@ on:
   create:
 
 concurrency:
-  group: courseleaf-testflight
+  # Releases run one at a time. The group was renamed once because a run whose
+  # macOS runner died was left in_progress by GitHub for hours — a cancel was
+  # accepted and never applied — and a stuck run holds its group forever, which
+  # queues every later release behind a job that will never finish.
+  group: courseleaf-release
   cancel-in-progress: false
 
 jobs:
