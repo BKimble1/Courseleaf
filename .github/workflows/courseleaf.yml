@@ -91,12 +91,16 @@ jobs:
       - name: Compile error summary
         if: failure()
         run: |
-          echo '## iOS build errors' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          # xcbeautify strips file/line, so read the raw log the script tees.
-          grep -E "error:|error generated|cannot |value of optional|does not conform|Undefined symbol" Build/xcodebuild-test.log 2>/dev/null \
-            | sed 's/\x1b\[[0-9;]*m//g' | sort -u | head -80 >> "$GITHUB_STEP_SUMMARY" || echo "(no error lines matched)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Printed to stdout as the last thing in the job so a short log tail
+          # always contains it; xcbeautify strips file and line, so read the raw log.
+          {
+            echo "================ iOS BUILD ERRORS ================"
+            grep -E "error:" Build/xcodebuild-test.log 2>/dev/null \
+              | sed 's/\x1b\[[0-9;]*m//g' \
+              | sed 's#/Users/runner/work/QuickWrite/QuickWrite/##' \
+              | sort -u | head -60 || echo "(no error lines matched)"
+            echo "================================================="
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload results
         if: always()
