@@ -186,10 +186,12 @@ final class AppShellTests: XCTestCase {
         let model = LibraryViewModel()
         model.configure(env: environment)
 
-        let course = try XCTUnwrap(await model.createFolder(name: "Analysis", parentID: nil, isCourse: true))
+        let createdFolder = await model.createFolder(name: "Analysis", parentID: nil, isCourse: true)
+        let course = try XCTUnwrap(createdFolder)
         XCTAssertTrue(course.isCourse)
 
-        let noteID = try XCTUnwrap(await model.createQuickNote(template: .preset(.blank)))
+        let createdNote = await model.createQuickNote(template: .preset(.blank))
+        let noteID = try XCTUnwrap(createdNote)
         await model.load(scope: .inbox)
         XCTAssertTrue(model.documents.contains { $0.id == noteID }, "a quick note lands in the inbox until it is filed")
 
