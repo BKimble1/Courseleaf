@@ -7,16 +7,21 @@ when context is nearly exhausted; keep it short and exact.
 
 - **Repository:** `BKimble1/Courseleaf` (renamed from `QuickWrite`;
   `/home/user/quickwrite` in the remote session), branch `main`.
-- **Last commit on main:** `PENDING_COMMIT`.
+- **Last commit on main:** `9d683f4` (CI green: [run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941)).
 - **Identity:** app `com.idlery.courseleaf`, tests `com.idlery.courseleaf.tests`,
   exported UTI `com.idlery.courseleaf.archive` (`.courseleaf`), team
   `7GNFT94A9L`, App Store Connect Apple ID `6811381700`, SKU
   `courseleaf-ios-001`. Version 1.0.0; the build number is chosen from App
   Store Connect at release time.
-- **Linux:** `swift test --parallel` → 219 tests, 0 failures. Green in CI
+- **Linux:** `swift test --parallel` → 222 tests, 0 failures. Green in CI
   (`core-linux`) on every pushed commit. Fixtures regenerate byte-identically.
 - **iPad simulator (CI `app-ios-simulator`, Xcode 26.3, iOS 26.2):**
-  PENDING_SIM_LINE
+  **69 tests, 0 failures** at `9d683f4` ([run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941)). Covers the
+  PencilKit ink engine, page layout and pooling, tool state, in-notebook and
+  library search, the app shell and library view model, the PDF and image
+  inspectors, PDF export alignment and tape policy, OCR evaluation, and — new
+  — end-to-end undo through the editor view controller, image export, printing
+  and the review queue.
 - **Device: still nothing.** There is no physical iPad or Apple Pencil in this
   environment. G0's device gate and A02, A03, A06, A16, A17 and A19 are open,
   and every performance target is unmeasured.

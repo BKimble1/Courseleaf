@@ -30,7 +30,7 @@ passed in the run recorded under *Portable test runs*. It never moves a row past
 | A06 Long PDF | 300-page mixed PDF opens with live canvases only for visible ±2 pages; bounded memory | sim + device | pending | Simulator [run 34694155083](https://github.com/BKimble1/Courseleaf/actions/runs/34694155083): `EditorLayoutTests.testPoolNeverExceedsItsLiveLimitScrollingThroughThreeHundredPages` scrolls a 300-page layout and asserts the live-canvas pool never exceeds its limit. Still open: opening the real `Fixtures/long-300-mixed.pdf` end to end and a device memory graph |
 | A07 Save failure | Simulated disk-full/write failure keeps last valid revision, reports unsaved | linux + device | pending | Portable: passing (3b105a5) — `DocumentPackageStoreTests.testA07EveryFailingStepLeavesPreviousManifestReadable`, `FileSystemTests.testFaultInjectionNumbersMutatingOperationsAndBlocksAfterCrash`, `SaveSchedulerTests.testFailureReportsFailedKeepsEditsPendingAndLaterFlushRetries`; device low-disk run with the save-status UI (needs App/Editor) |
 | A08 Interruption recovery | Termination during content write or manifest replace reopens a valid document | linux + device | pending | Portable: passing (3b105a5) — `DocumentPackageStoreTests.testA08CrashAtEveryStepReopensToPreOrPostState`, `testInvalidManifestFallsBackToLastKnownGood`, `testMissingCurrentPageFileIsRecoveredFromEarlierRevision`, `LibraryStoreTests.testLibraryManifestIsReplacedAtomicallyWithLKGFallback`; device force-quit during save |
-| A09 Mixed selection | Move ink + text + image + shape together; one undo restores exact prior state | linux + sim | pending | Portable: passing (3b105a5) — `DocumentEditorTests.testA09GroupedMoveOfObjectsAndInkUndoesInOneStepAndRedoReapplies`, `testNestedGroupsFormOneRecordAndFailedCommandLeavesSnapshotUntouched`; simulator test through `NotebookEditorViewController` with the shared `UndoManager` (needs App/Editor) |
+| A09 Mixed selection | Move ink + text + image + shape together; one undo restores exact prior state | linux + sim | **passed (sim)** | Portable: passing (3b105a5) — `DocumentEditorTests.testA09GroupedMoveOfObjectsAndInkUndoesInOneStepAndRedoReapplies`, `testNestedGroupsFormOneRecordAndFailedCommandLeavesSnapshotUntouched`; simulator [run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941): `AppFlowTests.testGroupedMoveOfMixedSelectionUndoesInOneStepThroughTheEditorViewController` moves a text box, an image and a shape together with a replaced ink layer through the real view controller, undoes once and asserts the snapshot equals the prior one exactly, asserts the other page is untouched, redoes to the moved snapshot, then undoes, flushes, closes and reopens the document to show the undone state is what reached disk. The device gate (a lasso drag with a Pencil) is still open |
 | A10 Partial erasing | Recolor, move, reopen, export partially erased ink without resurrecting erased regions | linux (reference engine) + sim (PencilKit) + device | pending | Portable: passing (3b105a5) — `ReferenceInkTests.testPartialEraseThenMoveAndRecolorKeepsMask`, `InkFixtureTests.testPartiallyErasedSampleKeepsMasksThroughTransformAndRoundTrip` over `Fixtures/ink/partially-erased.json`; simulator [run 34694155083](https://github.com/BKimble1/Courseleaf/actions/runs/34694155083): `EditorInkEngineTests.testTransformingAStrokeConcatenatesTheTransformAndKeepsTheEraseMask` and `testRecoloringKeepsPathTransformAndMaskAndOnlyChangesTheInkColour` prove the real PencilKit engine keeps the erase mask through transform and recolour. Still open: reopen-and-export after a partial erase, and a device check |
 | A11 Page operations | Copy/move/delete/restore/reorder use stable IDs; neighbours untouched | linux | pending | Portable: passing (3b105a5) — `DocumentEditorTests.testA11PageOperationsKeepOtherPagesAndIDsStable`, `testMakeDuplicateAndCopiesOfPagesUseFreshIDsAndSharedAssets`, `testDeletingTheLastPageIsRefused`, `LibraryStoreTests.testDuplicateYieldsDistinctIdentifiersAndEqualContent`; stays pending until the Workspace session and the App/Editor page sheet drive the same commands end to end |
 | A12 Text and links | Export keeps source text searchable; links functional where advertised | sim | **passed (sim), with a recorded limitation** | Simulator [run 34694155083](https://github.com/BKimble1/Courseleaf/actions/runs/34694155083): `InterchangeExportTests.testExportKeepsSourcePDFTextSearchable` exports the three-page `text-and-outline` fixture and asserts PDFKit reads the source text back and `findString` locates it. Links and outlines are **not** carried into the export: that is an accepted launch limitation stated in `PRODUCT_SPEC.md` §6, and it is recorded here rather than claimed as working |
@@ -84,6 +84,8 @@ available in this project's remote sessions.
 | 2026-09-12 | `453373a` | `app-ios-simulator`, package targets | DocumentCore, PageGeometry, Persistence, Catalog, CSQLite, Editing, Archive, Fixtures and Workspace all compiled for `arm64-apple-ios-simulator` (iOS 26.2 SDK) |
 | 2026-09-12 | `7627793` | `app-ios-simulator`, full job ([run 34694155083](https://github.com/BKimble1/Courseleaf/actions/runs/34694155083)) | **app built and `CourseleafTests` ran on an iPad simulator: `totalTestCount` 63, 0 failed, 0 skipped.** Per suite: AppShellTests 17, EditorInkEngineTests 6, EditorLayoutTests, EditorSearchTests, EditorToolStateTests, InterchangeInspectorTests, InterchangeExportTests, InterchangeOCRTests |
 
+| 2026-09-12 | `9d683f4` | `core-linux` and `app-ios-simulator`, full run ([run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941)) | **69 simulator tests, 0 failures**, plus 219 Linux tests, 0 failures. Adds `AppFlowTests`: end-to-end undo through the editor view controller, image export geometry and encoding, printing, the review queue and library search |
+
 Getting there took eight real defects, each found from compiler or test-runner
 output and fixed in the history: a missing Workspace product; a system-library
 target Xcode cannot resolve inside a project; a caseless enum declaring a raw
@@ -126,10 +128,31 @@ Baseline hardware: **to be chosen and recorded** (model, chip, iPadOS build, Pen
 generation). If a target is unrealistic on the chosen hardware, record the
 measurement and agree a revised product limit here rather than adjusting the test.
 
+## Defects the end-to-end tests found
+
+Driving the real screens rather than the engine underneath turned up three
+things the module tests could not see. They are recorded here because "the
+tests pass" is only meaningful alongside what the tests caught.
+
+1. **Selected-page export used the caller's order** rather than document order,
+   so exporting a selection could produce a PDF with the pages shuffled. Fixed
+   in `PDFExporter.selectedPages` at `7627793`.
+2. **The review queue lost the answer tape reference.** The catalog's projection
+   of a review item deliberately omitted `answerTapeID`, but
+   `ReviewQueueViewModel` reads it to reveal or hide the answer — so revealing
+   an answer from the queue silently did nothing whenever the catalog was
+   available, which is the normal path, while working on the package-scan
+   fallback. The tape id is now catalogued (schema version 2, rebuilt on
+   mismatch like any other index change).
+3. **Reviewed items were unreachable.** The service returned only pending items,
+   so the queue's own "show reviewed" toggle and `reopen` action could never act
+   on anything. `reviewQueue` now takes `includeReviewed:` and both the catalog
+   and fallback paths honour it; the view model asks for everything and filters.
+
 ## Unresolved failures
 
-No test is failing. Linux passes 219/219 in the session and in CI. The iPad
-simulator ran 63 tests with 0 failures at `7627793`.
+No test is failing. Linux passes 222/222 in the session and in CI. The iPad
+simulator ran 69 tests with 0 failures at `9d683f4` [run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941).
 
 Device rows remain open: no physical iPad or Apple Pencil exists in this
 environment, so A02, A03, A06, A16, A17 and A19 have no evidence and must not be
