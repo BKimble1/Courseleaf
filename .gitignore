@@ -19,3 +19,7 @@ DerivedData/
 *.p12
 *.cer
 *.mobileprovision
+
+# Python bytecode from running the release scripts locally
+__pycache__/
+*.pyc
