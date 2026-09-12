@@ -74,6 +74,10 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
     /// True while strokes are lifted into a drag preview, when the canvas's
     /// drawing is deliberately incomplete and must not be committed.
     private(set) var isPreviewingInkDrag = false
+    /// True between pen-down and pen-up. The save timer stands down while this
+    /// is set: a pause in the middle of a long stroke must not turn into an
+    /// undo boundary halfway through it.
+    private(set) var isUsingTool = false
 
     /// Edits the document has not been told about yet.
     var hasUncommittedDrawing: Bool {
@@ -402,6 +406,7 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
         endInkPreview()
         hideShapePreview()
         strokeSampler.clear()
+        isUsingTool = false
     }
 
     // MARK: Shape preview
@@ -424,10 +429,12 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+        isUsingTool = true
         host?.canvasDidBeginUsingTool(self)
     }
 
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        isUsingTool = false
         host?.canvasDidEndUsingTool(self)
     }
 

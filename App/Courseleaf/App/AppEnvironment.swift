@@ -99,9 +99,8 @@ final class AppEnvironment {
             await recognitionQueues[id]?.cancelAll()
         }
         recognitionQueues.removeAll()
-        for id in Array(sessions.keys) {
-            await libraryService.closeSession(id)
-        }
+        // The app is going away, so there is nowhere left to retry a save;
+        // `LibraryService.close` forces each session shut after one last flush.
         sessions.removeAll()
         await libraryService.close()
     }
@@ -124,10 +123,20 @@ final class AppEnvironment {
     var openDocumentIDs: [DocumentID] { Array(sessions.keys) }
 
     /// Flushes and releases a session and its recognition queue.
+    ///
+    /// A session whose final save failed is **not** released: the service keeps
+    /// it open so the work can still be written, and this keeps the reference
+    /// so the app can find it again. The student is told rather than left with
+    /// a notebook that closed and quietly lost its last page.
     func closeSession(_ id: DocumentID) async {
-        if let queue = recognitionQueues.removeValue(forKey: id) { await queue.cancelAll() }
-        guard sessions.removeValue(forKey: id) != nil else { return }
+        guard sessions[id] != nil else { return }
         await libraryService.closeSession(id)
+        if let failure = await libraryService.unsavedSessionFailure(id) {
+            present(failure, title: "This notebook could not be saved, so it is still open")
+            return
+        }
+        if let queue = recognitionQueues.removeValue(forKey: id) { await queue.cancelAll() }
+        sessions.removeValue(forKey: id)
         noteLibraryChanged()
     }
 

@@ -139,9 +139,38 @@ public final class DocumentSession: DocumentSessioning {
         await statusHop.drain()
     }
 
+    /// Why the last `close()` did not close. Cleared by a successful close.
+    public private(set) var closeFailure: WorkspaceError?
+
+    /// Flushes and releases the session.
+    ///
+    /// A failed final save does **not** close it. Shutting the scheduler down
+    /// with edits still in it would throw away work that is still recoverable —
+    /// the scheduler keeps a failed commit's changes pending precisely so a
+    /// retry can succeed — so the session stays open and `closeFailure` says
+    /// what happened. Callers that must proceed regardless use
+    /// `forceClose()` and take the loss knowingly.
     public func close() async {
         guard !isClosed else { return }
+        do {
+            try await flush()
+        } catch {
+            closeFailure = (error as? WorkspaceError) ?? .storage("\(error)")
+            return
+        }
+        closeFailure = nil
+        await finishClosing()
+    }
+
+    /// Closes even though the final save failed. Only for teardown paths that
+    /// have nowhere left to put the work (the library itself is closing).
+    public func forceClose() async {
+        guard !isClosed else { return }
         try? await flush()
+        await finishClosing()
+    }
+
+    private func finishClosing() async {
         isClosed = true
         await scheduler.shutdown()
         await statusHop.drain()

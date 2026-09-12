@@ -65,7 +65,12 @@ public actor LibraryService: LibraryServicing {
 
     /// Flushes and closes every session and the catalog.
     public func close() async {
-        for id in sessions.keys.sorted() { await closeSession(id) }
+        // The library itself is going away, so there is nowhere left to retry:
+        // force the close rather than leaving a session open forever.
+        for id in sessions.keys.sorted() {
+            if let session = sessions[id] { await session.forceClose() }
+            sessions[id] = nil
+        }
         if let catalog { await catalog.close() }
         catalog = nil
         isOpen = false
@@ -410,10 +415,21 @@ public actor LibraryService: LibraryServicing {
         return session
     }
 
+    /// Closes an open session. A session whose final save failed stays open and
+    /// stays in the table, so the work is still there to retry; dropping the
+    /// reference would be the only thing standing between a failed write and a
+    /// lost page.
     public func closeSession(_ id: DocumentID) async {
         guard let session = sessions[id] else { return }
         await session.close()
+        guard await session.closeFailure == nil else { return }
         if sessions[id] === session { sessions[id] = nil }
+    }
+
+    /// Whether a session is still open because its last save failed.
+    public func unsavedSessionFailure(_ id: DocumentID) async -> WorkspaceError? {
+        guard let session = sessions[id] else { return nil }
+        return await session.closeFailure
     }
 
     private func sessionDidClose(_ id: DocumentID, _ session: DocumentSession) {

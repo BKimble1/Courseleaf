@@ -639,6 +639,13 @@ final class NotebookEditorViewController: UIViewController {
             guard !Task.isCancelled, let self else { return }
             self.inkDebounceTasks[pageID] = nil
             guard let canvas = self.pool?.canvas(for: pageID) else { return }
+            // Still drawing: the gesture's own end is the boundary, and
+            // committing here would split one stroke into two undo steps
+            // because the student paused in the middle of it.
+            guard !canvas.isUsingTool else {
+                self.scheduleInkCommit(for: canvas, atGestureBoundary: false)
+                return
+            }
             self.enqueueInkCommit(for: canvas)
         }
     }

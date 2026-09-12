@@ -13,6 +13,8 @@ import PageGeometry
 final class ThumbnailCache {
     private let cache = NSCache<NSString, UIImage>()
     private var inFlight: [String: [(UIImage?) -> Void]] = [:]
+    private var waiting: [PendingRender] = []
+    private var activeRenders = 0
     private var latestKeyByPage: [PageID: String] = [:]
     let loader: PageContentLoader
 
@@ -36,7 +38,29 @@ final class ThumbnailCache {
         latestKeyByPage[pageID] = nil
     }
 
-    func removeAll() { cache.removeAllObjects(); latestKeyByPage.removeAll() }
+    func removeAll() {
+        cache.removeAllObjects()
+        latestKeyByPage.removeAll()
+        waiting.removeAll()
+    }
+
+    // Bounding the work, not just the cache.
+    //
+    // Every request used to start its own unstructured `Task`, so flicking
+    // through a long notebook queued one full-page render per page it passed,
+    // all of them decoding ink and rasterizing PDF at once and none of them
+    // cancellable. The cache was bounded; the work was not. Renders now run at
+    // most `maxConcurrentRenders` at a time, and requests that have not started
+    // sit in a bounded queue where a newer one can displace the oldest — a
+    // thumbnail nobody is looking at any more is not worth a core.
+    static let maxConcurrentRenders = 2
+    static let maxQueuedRenders = 12
+
+    private struct PendingRender {
+        var key: String
+        var page: Page
+        var size: CGSize
+    }
 
     /// Renders (or returns) the thumbnail; `completion` runs on the main actor
     /// with nil when the page could not be rendered.
@@ -46,17 +70,45 @@ final class ThumbnailCache {
         if inFlight[key] != nil { inFlight[key]?.append(completion); return }
         inFlight[key] = [completion]
         latestKeyByPage[page.id] = key
+        enqueue(PendingRender(key: key, page: page, size: size))
+    }
+
+    private func enqueue(_ render: PendingRender) {
+        waiting.append(render)
+        if waiting.count > Self.maxQueuedRenders {
+            // Drop the oldest request rather than the newest: the newest is the
+            // page on screen now.
+            let dropped = waiting.removeFirst()
+            finish(key: dropped.key, image: nil)
+        }
+        startNextIfPossible()
+    }
+
+    private func startNextIfPossible() {
+        guard activeRenders < Self.maxConcurrentRenders, !waiting.isEmpty else { return }
+        let next = waiting.removeFirst()
+        activeRenders += 1
         Task { [weak self] in
             guard let self else { return }
-            let image = await self.render(page: page, size: size)
+            let image = await self.render(page: next.page, size: next.size)
             if let image {
                 let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
-                self.cache.setObject(image, forKey: key as NSString, cost: cost)
+                self.cache.setObject(image, forKey: next.key as NSString, cost: cost)
             }
-            let waiters = self.inFlight.removeValue(forKey: key) ?? []
-            for waiter in waiters { waiter(image) }
+            self.activeRenders -= 1
+            self.finish(key: next.key, image: image)
+            self.startNextIfPossible()
         }
     }
+
+    private func finish(key: String, image: UIImage?) {
+        let waiters = inFlight.removeValue(forKey: key) ?? []
+        for waiter in waiters { waiter(image) }
+    }
+
+    /// Requests that have not started yet.
+    var queuedRenderCount: Int { waiting.count }
+    var activeRenderCount: Int { activeRenders }
 
     private func render(page: Page, size: CGSize) async -> UIImage? {
         let input = await PageContentResolver.resolve(page: page, loader: loader, wantsInk: true, wantsImages: true)

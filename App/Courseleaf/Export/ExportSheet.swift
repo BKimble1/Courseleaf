@@ -77,11 +77,6 @@ struct ExportSheet: View {
     @State private var producedURLs: [URL] = []
     @State private var failure: String? = nil
 
-    init(session: any DocumentSessioning, currentPageID: PageID? = nil) {
-        self.session = session
-        self.currentPageID = currentPageID
-    }
-
     private var pageCount: Int { session.editor.snapshot.document.pageIDs.count }
 
     private var documentTitle: String { session.editor.snapshot.document.title }
