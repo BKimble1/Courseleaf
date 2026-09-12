@@ -21,6 +21,19 @@ print(cands[0][1]["udid"] if cands else "")')
   DESTINATION="platform=iOS Simulator,id=$UDID"
 fi
 echo "Destination: $DESTINATION"
+
+# What does the generated scheme actually agree to test? An empty Testables list
+# is why `xcodebuild test` can exit 0 having run nothing.
+SCHEME_FILE="Courseleaf.xcodeproj/xcshareddata/xcschemes/Courseleaf.xcscheme"
+if [ -f "$SCHEME_FILE" ]; then
+  echo "----- scheme TestAction -----"
+  sed -n '/<TestAction/,/<\/TestAction>/p' "$SCHEME_FILE"
+  echo "-----------------------------"
+else
+  echo "no shared scheme at $SCHEME_FILE; schemes present:"; ls -1 Courseleaf.xcodeproj/xcshareddata/xcschemes 2>/dev/null || true
+fi
+echo "----- test plans / testables xcodebuild sees -----"
+xcodebuild -project Courseleaf.xcodeproj -scheme Courseleaf -showTestPlans 2>&1 | head -20 || true
 RESULT="${RESULT_BUNDLE:-$PWD/../Build/CourseleafTests.xcresult}"
 rm -rf "$RESULT"
 set +e
