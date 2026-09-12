@@ -70,15 +70,15 @@ final class ScribbleEraseTests: XCTestCase {
 
     func testOnlyStrokesActuallyCrossedAreErasedNotMerelyOverlappingBounds() {
         var targets = word(x0: 40, y: 100)
-        // A long diagonal whose bounding box covers the whole scribble area but
-        // whose ink is nowhere near it.
-        targets.append(ScribbleEraseTarget(index: 9,
-                                           polyline: StrokeFixtures.line(from: PagePoint(x: 20, y: 20),
-                                                                         to: PagePoint(x: 300, y: 300)),
-                                           halfWidth: 1))
+        // A bracket drawn around the margin. Its bounding box (x 20...300,
+        // y 20...300) contains the whole scribble; its ink runs down the far
+        // left and along the bottom and never comes near it.
+        let bracket = StrokeFixtures.line(from: PagePoint(x: 20, y: 20), to: PagePoint(x: 20, y: 300))
+            + StrokeFixtures.line(from: PagePoint(x: 20, y: 300), to: PagePoint(x: 300, y: 300))
+        targets.append(ScribbleEraseTarget(index: 9, polyline: bracket, halfWidth: 1))
         let decision = decide(StrokeFixtures.crossOut(x0: 36, x1: 150, y: 100, passes: 5), targets: targets)
         XCTAssertEqual(decision.verdict.strokeIndices, [0, 1, 2],
-                       "the diagonal's bounding box overlaps; its path does not")
+                       "the bracket's bounding box overlaps; its path does not")
     }
 
     // MARK: Negative — things a student draws on purpose

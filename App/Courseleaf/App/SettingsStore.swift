@@ -35,6 +35,9 @@ final class SettingsStore {
         static let pencilOnly = "settings.input.pencilOnly"
         static let fingerDrawing = "settings.input.fingerDrawing"
         static let leftHanded = "settings.input.leftHanded"
+        static let scribbleErase = "settings.input.scribbleErase"
+        static let shapeCorrection = "settings.input.shapeCorrection"
+        static let snapShapes = "settings.input.snapShapes"
         static let defaultPaperKind = "settings.paper.defaultKind"
         static let defaultPageSize = "settings.paper.defaultPageSize"
         static let appearance = "settings.appearance"
@@ -48,6 +51,9 @@ final class SettingsStore {
         var pencilOnly = true
         var fingerDrawing = false
         var leftHanded = false
+        var scribbleErase = false
+        var shapeCorrection = true
+        var snapShapes = true
         var defaultPaperKind: PaperKind = .lined
         var defaultPageSize: PageSizeChoice = .letter
         var appearance: Appearance = .system
@@ -64,6 +70,9 @@ final class SettingsStore {
         if defaults.object(forKey: Keys.pencilOnly) != nil { loaded.pencilOnly = defaults.bool(forKey: Keys.pencilOnly) }
         if defaults.object(forKey: Keys.fingerDrawing) != nil { loaded.fingerDrawing = defaults.bool(forKey: Keys.fingerDrawing) }
         if defaults.object(forKey: Keys.leftHanded) != nil { loaded.leftHanded = defaults.bool(forKey: Keys.leftHanded) }
+        if defaults.object(forKey: Keys.scribbleErase) != nil { loaded.scribbleErase = defaults.bool(forKey: Keys.scribbleErase) }
+        if defaults.object(forKey: Keys.shapeCorrection) != nil { loaded.shapeCorrection = defaults.bool(forKey: Keys.shapeCorrection) }
+        if defaults.object(forKey: Keys.snapShapes) != nil { loaded.snapShapes = defaults.bool(forKey: Keys.snapShapes) }
         if let raw = defaults.string(forKey: Keys.defaultPaperKind), let kind = PaperKind(rawValue: raw) { loaded.defaultPaperKind = kind }
         if let raw = defaults.string(forKey: Keys.defaultPageSize), let size = PageSizeChoice(rawValue: raw) { loaded.defaultPageSize = size }
         if let raw = defaults.string(forKey: Keys.appearance), let appearance = Appearance(rawValue: raw) { loaded.appearance = appearance }
@@ -90,6 +99,25 @@ final class SettingsStore {
     var leftHanded: Bool {
         get { values.leftHanded }
         set { values.leftHanded = newValue; defaults.set(newValue, forKey: Keys.leftHanded) }
+    }
+
+    /// Crossing writing out with the pen erases it. Off by default: it changes
+    /// what an ordinary stroke means, so it is the student's choice to make.
+    var scribbleErase: Bool {
+        get { values.scribbleErase }
+        set { values.scribbleErase = newValue; defaults.set(newValue, forKey: Keys.scribbleErase) }
+    }
+
+    /// Hold at the end of a freehand shape to swap it for a clean one.
+    var shapeCorrection: Bool {
+        get { values.shapeCorrection }
+        set { values.shapeCorrection = newValue; defaults.set(newValue, forKey: Keys.shapeCorrection) }
+    }
+
+    /// Snap corrected shapes to the axes and to equal sides when already close.
+    var snapShapes: Bool {
+        get { values.snapShapes }
+        set { values.snapShapes = newValue; defaults.set(newValue, forKey: Keys.snapShapes) }
     }
 
     // MARK: Paper defaults
@@ -131,7 +159,9 @@ final class SettingsStore {
 
     /// Input policy handed to the editor's canvases.
     var editorInput: EditorInputSettings {
-        EditorInputSettings(pencilOnly: pencilOnly, fingerDrawing: fingerDrawing, leftHanded: leftHanded)
+        EditorInputSettings(pencilOnly: pencilOnly, fingerDrawing: fingerDrawing, leftHanded: leftHanded,
+                            scribbleErase: scribbleErase, shapeCorrection: shapeCorrection,
+                            snapsShapesToAxis: snapShapes)
     }
 
     /// Restores the shipped defaults (used by tests and Settings > Reset).
@@ -139,6 +169,9 @@ final class SettingsStore {
         pencilOnly = true
         fingerDrawing = false
         leftHanded = false
+        scribbleErase = false
+        shapeCorrection = true
+        snapShapes = true
         defaultPaperKind = .lined
         defaultPageSize = .letter
         appearance = .system

@@ -23,10 +23,29 @@ jobs:
       - name: Build
         run: swift build
       - name: Test
-        run: swift test --parallel 2>&1 | tee test-output.log
+        # `swift test | tee` reports tee's exit code, not the test run's, so this
+        # job once printed failing tests and still went green. bash + pipefail
+        # makes the pipeline fail with the tests (Scripts/check-test-results.sh
+        # is the equivalent guard on the macOS job).
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --parallel 2>&1 | tee test-output.log
       - name: Summary
         if: always()
-        run: grep -E "Executed .* tests" test-output.log | tail -1 >> "$GITHUB_STEP_SUMMARY" || true
+        shell: bash
+        run: |
+          grep -E "Executed .* tests" test-output.log | tail -1 >> "$GITHUB_STEP_SUMMARY" || true
+          # A run that executed nothing is not evidence of anything.
+          if ! grep -qE "Executed [1-9][0-9]* test" test-output.log; then
+            echo "FAIL: no tests executed" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if grep -qE "error: .*XCTAssert|with [1-9][0-9]* failure" test-output.log; then
+            echo "FAIL: the log contains test failures" | tee -a "$GITHUB_STEP_SUMMARY"
+            grep -E "error: " test-output.log | head -20 >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   app-ios-simulator:
     name: iPad app (macOS, Xcode, simulator)

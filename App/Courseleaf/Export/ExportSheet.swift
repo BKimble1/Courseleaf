@@ -13,6 +13,17 @@ import Workspace
 struct ExportSheet: View {
     let session: any DocumentSessioning
     let currentPageID: PageID?
+    /// Finishes everything the editor is still holding in its views and makes
+    /// the document durable, then reports what stopped it. `session.flush()`
+    /// alone is not enough: a stroke that has not left its `PKCanvasView` and a
+    /// word still in a `UITextView` are not in the snapshot an exporter reads.
+    var prepare: (() async -> Error?)?
+
+    init(session: any DocumentSessioning, currentPageID: PageID?, prepare: (() async -> Error?)? = nil) {
+        self.session = session
+        self.currentPageID = currentPageID
+        self.prepare = prepare
+    }
 
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -186,7 +197,11 @@ struct ExportSheet: View {
         producedURLs = []
         defer { isWorking = false }
         do {
-            try await session.flush()
+            if let prepare {
+                if let error = await prepare() { throw error }
+            } else {
+                try await session.flush()
+            }
             let directory = try makeExportDirectory()
             let stem = safeStem(documentTitle)
             switch format {

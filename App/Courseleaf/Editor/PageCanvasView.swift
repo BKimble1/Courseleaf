@@ -11,6 +11,12 @@ protocol PageCanvasViewHost: AnyObject {
     /// A stroke or erase gesture finished, or PencilKit undid/redid one (check the undo manager state).
     func canvasDrawingDidChange(_ canvas: PageCanvasView)
     func canvasDidBeginUsingTool(_ canvas: PageCanvasView)
+    /// One pen-down-to-pen-up gesture ended. This, not a timer, is where an
+    /// undo step ends: a pause in the middle of a stroke never splits it, and
+    /// two quick strokes are still two steps.
+    func canvasDidEndUsingTool(_ canvas: PageCanvasView)
+    /// The student asked to try loading unreadable ink again.
+    func canvasWantsInkReload(_ canvas: PageCanvasView)
     func canvas(_ canvas: PageCanvasView, tapeWantsRevealed id: ObjectID, revealed: Bool)
     func canvas(_ canvas: PageCanvasView, didTapObject id: ObjectID, tapCount: Int)
     func canvas(_ canvas: PageCanvasView, textEditingBegan id: ObjectID)
@@ -32,14 +38,48 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
 
     let background = PageBackgroundLayerView(frame: .zero)
     let imageLayer = ImageObjectLayerView(frame: .zero)
+    let canvasHost = InkCanvasHostView(frame: .zero)
     let canvasView = PKCanvasView(frame: .zero)
     let objectLayer = ObjectLayerView(frame: .zero)
     let overlay = SelectionOverlayView(frame: .zero)
+    private let failureView = InkUnavailableView(frame: .zero)
+    private let shapePreview = ShapePreviewLayerView(frame: .zero)
     private let readingTap = UITapGestureRecognizer()
+    /// Watches the same touches PencilKit is drawing with, without taking them.
+    let strokeSampler = StrokeSamplingGestureRecognizer()
+    /// Stroke count when the current gesture began, so the stroke it produced
+    /// can be identified without guessing at PencilKit's internals.
+    var strokeCountAtGestureStart = 0
 
     /// The ink asset the canvas drawing currently represents (nil = empty / never drawn).
     private(set) var loadedInkAssetID: AssetID?
     private(set) var hasLoadedInk = false
+    /// Set when the page's ink could not be produced. While this is set the
+    /// canvas refuses input, so the next stroke cannot overwrite a reference
+    /// whose bytes we never managed to read.
+    private(set) var inkFailure: InkLoadOutcome?
+
+    // Ink bookkeeping. Two counters, because they answer different questions.
+    //
+    //  * `drawingGeneration` counts every change to the live drawing. It is what
+    //    "has this page got edits the document has not seen" is derived from,
+    //    so a late, stale serialization result cannot mark newer ink saved.
+    //  * `drawingEpoch` counts only the times the drawing was *re-established*
+    //    from outside — loaded, undone, cleared, edited by the lasso, or
+    //    committed synchronously. Any serialization started before the current
+    //    epoch describes a drawing that no longer exists and is discarded.
+    private(set) var drawingGeneration = 0
+    private(set) var committedDrawingGeneration = 0
+    private(set) var drawingEpoch = 0
+    /// True while strokes are lifted into a drag preview, when the canvas's
+    /// drawing is deliberately incomplete and must not be committed.
+    private(set) var isPreviewingInkDrag = false
+
+    /// Edits the document has not been told about yet.
+    var hasUncommittedDrawing: Bool {
+        inkFailure == nil && !isPreviewingInkDrag && drawingGeneration > committedDrawingGeneration
+    }
+
     private var inkLoadTask: Task<Void, Never>?
     private var backgroundTask: Task<Void, Never>?
     private var backgroundKey: String = ""
@@ -70,10 +110,19 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
         layer.shadowRadius = 4
         layer.shadowOffset = CGSize(width: 0, height: 1)
 
-        for sub in [background, imageLayer, canvasView, objectLayer, overlay] as [UIView] {
+        for sub in [background, imageLayer, canvasHost, shapePreview, objectLayer, overlay, failureView] as [UIView] {
             sub.frame = bounds
             sub.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(sub)
+        }
+        canvasView.frame = canvasHost.bounds
+        canvasView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        canvasHost.addSubview(canvasView)
+        canvasHost.addGestureRecognizer(strokeSampler)
+        failureView.isHidden = true
+        failureView.onRetry = { [weak self] in
+            guard let self else { return }
+            self.host?.canvasWantsInkReload(self)
         }
         imageLayer.loader = loader
         canvasView.backgroundColor = .clear
@@ -156,41 +205,108 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
 
     private func reloadInkIfNeeded() {
         let target = currentInkAssetID
-        if hasLoadedInk, target == loadedInkAssetID { return }
+        if hasLoadedInk, inkFailure == nil, target == loadedInkAssetID { return }
         inkLoadTask?.cancel()
         guard let target else {
-            setDrawing(PKDrawing(), assetID: nil)
+            applyLoaded(.empty, assetID: nil)
             return
         }
         if let loader, let cached = loader.decoded.drawing(for: target) {
-            setDrawing(cached, assetID: target)
+            applyLoaded(.loaded(cached), assetID: target)
             return
         }
-        guard let loader else { setDrawing(PKDrawing(), assetID: nil); return }
+        guard let loader else {
+            // No loader is a wiring failure, not an empty page; refuse to draw
+            // rather than let the next stroke stand in for the page's ink.
+            applyLoaded(.missing(target), assetID: target)
+            return
+        }
+        applyLoading()
         inkLoadTask = Task { [weak self] in
-            let drawing = await loader.drawing(for: target)
+            let outcome = await loader.loadDrawing(for: target)
             guard !Task.isCancelled, let self, self.currentInkAssetID == target else { return }
-            self.setDrawing(drawing ?? PKDrawing(), assetID: target)
+            self.applyLoaded(outcome, assetID: target)
         }
     }
 
-    /// Sets the canvas drawing without going through PencilKit's undo.
+    /// Retries a failed ink load from the top.
+    func reloadInk() {
+        inkFailure = nil
+        hasLoadedInk = false
+        loadedInkAssetID = nil
+        reloadInkIfNeeded()
+    }
+
+    private func applyLoading() {
+        hasLoadedInk = false
+        inkFailure = nil
+        failureView.isHidden = true
+        applyInteractionPolicy()
+    }
+
+    private func applyLoaded(_ outcome: InkLoadOutcome, assetID: AssetID?) {
+        switch outcome {
+        case .empty, .loaded:
+            inkFailure = nil
+            failureView.isHidden = true
+            setDrawing(outcome.drawing ?? PKDrawing(), assetID: assetID)
+        case .missing, .unreadable:
+            // Never stand in an empty drawing for content we could not read: the
+            // canvas stays out of the way, the page keeps its asset reference,
+            // and the student is offered a retry.
+            inkFailure = outcome
+            hasLoadedInk = false
+            loadedInkAssetID = nil
+            failureView.message = outcome.failureDescription ?? "This page's handwriting is unavailable."
+            failureView.isHidden = false
+            bringSubviewToFront(failureView)
+            applyInteractionPolicy()
+        }
+    }
+
+    /// Sets the canvas drawing without going through PencilKit's undo. Every
+    /// caller is re-establishing the drawing from the document (a load, an undo,
+    /// a lasso edit, a clear), so this both counts as a change and closes the
+    /// epoch: anything still being serialized from before is now stale.
     func setDrawing(_ drawing: PKDrawing, assetID: AssetID?) {
         isSettingDrawingProgrammatically = true
         canvasView.drawing = drawing
         isSettingDrawingProgrammatically = false
         loadedInkAssetID = assetID
         hasLoadedInk = true
+        inkFailure = nil
+        failureView.isHidden = true
+        drawingGeneration += 1
+        drawingEpoch += 1
+        committedDrawingGeneration = drawingGeneration
         applyInteractionPolicy()
     }
 
-    /// The host committed the current canvas drawing as `assetID` (after a stroke or a selection edit).
-    func noteInkCommitted(assetID: AssetID?) {
+    /// Records that the document now holds `generation` of this page's drawing.
+    /// A result from an older generation never moves the mark forward.
+    func noteInkCommitted(assetID: AssetID?, generation: Int) {
         loadedInkAssetID = assetID
         hasLoadedInk = true
+        if generation > committedDrawingGeneration { committedDrawingGeneration = generation }
     }
 
+    /// Invalidates any serialization already in flight for this canvas.
+    func closeDrawingEpoch() { drawingEpoch += 1 }
+
     var drawing: PKDrawing { canvasView.drawing }
+
+    /// Every visible stroke as a page-space polyline, for geometric hit testing
+    /// that must not fall back to bounding rectangles.
+    func inkTargets() -> [ScribbleEraseTarget] {
+        let strokes = canvasView.drawing.strokes
+        return strokes.indices.map { index in
+            let stroke = strokes[index]
+            let width = stroke.path.first?.size.width ?? 2
+            return ScribbleEraseTarget(index: index,
+                                       polyline: PencilKitDrawing.visibleLocations(of: stroke),
+                                       halfWidth: Double(width) / 2)
+        }
+    }
 
     // MARK: Tools and interaction
 
@@ -200,10 +316,18 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
 
     func setDrawingPolicy(_ policy: PKCanvasViewDrawingPolicy) {
         canvasView.drawingPolicy = policy
+        // Record only the touches that can actually draw, so a finger resting on
+        // the page never contributes samples to a pencil gesture.
+        switch policy {
+        case .pencilOnly: strokeSampler.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        default: strokeSampler.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue),
+                                                    NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        }
     }
 
     private func applyInteractionPolicy() {
-        let inkActive = activeTool.isInkTool && !isReadingMode && drawingEnabled && hasLoadedInk
+        let inkActive = activeTool.isInkTool && !isReadingMode && drawingEnabled && hasLoadedInk && inkFailure == nil
+        canvasHost.isUserInteractionEnabled = inkActive
         canvasView.isUserInteractionEnabled = inkActive
         canvasView.drawingGestureRecognizer.isEnabled = inkActive
         objectLayer.isReadingMode = isReadingMode
@@ -232,6 +356,8 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
     /// them as a floating image that follows a transform preview.
     func beginInkPreview(strokeIndices: [Int], screenScale: CGFloat, zoom: CGFloat) -> PKDrawing {
         endInkPreview()
+        isPreviewingInkDrag = true
+        drawingEpoch += 1
         let all = PencilKitDrawing(drawing: canvasView.drawing)
         let extracted = all.extractingStrokes(strokeIndices)
         guard !extracted.isEmpty else { return extracted.drawing }
@@ -246,7 +372,7 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
         view.layer.anchorPoint = .zero
         view.layer.position = bounds.origin
         inkPreviewOrigin = bounds.origin
-        insertSubview(view, aboveSubview: canvasView)
+        insertSubview(view, aboveSubview: canvasHost)
         inkPreview = view
         return extracted.drawing
     }
@@ -259,14 +385,13 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
     func endInkPreview() {
         inkPreview?.removeFromSuperview()
         inkPreview = nil
+        isPreviewingInkDrag = false
     }
 
     /// Restores a drawing after a cancelled drag (no undo registration).
     func restoreDrawingAfterCancelledPreview(_ drawing: PKDrawing) {
         endInkPreview()
-        isSettingDrawingProgrammatically = true
-        canvasView.drawing = drawing
-        isSettingDrawingProgrammatically = false
+        setDrawing(drawing, assetID: loadedInkAssetID)
     }
 
     func prepareForReuse() {
@@ -275,17 +400,35 @@ final class PageCanvasView: UIView, PKCanvasViewDelegate, ObjectLayerViewDelegat
         imageLayer.cancelLoads()
         objectLayer.endTextEditing()
         endInkPreview()
+        hideShapePreview()
+        strokeSampler.clear()
     }
+
+    // MARK: Shape preview
+
+    func showShapePreview(_ shape: RecognizedShape, color: UIColor, width: CGFloat) {
+        shapePreview.show(shape, color: color, width: width,
+                          reduceMotion: UIAccessibility.isReduceMotionEnabled)
+    }
+
+    func hideShapePreview() { shapePreview.hide() }
+
+    var isShowingShapePreview: Bool { !shapePreview.isHidden }
 
     // MARK: PKCanvasViewDelegate
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         guard !isSettingDrawingProgrammatically else { return }
+        drawingGeneration += 1
         host?.canvasDrawingDidChange(self)
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         host?.canvasDidBeginUsingTool(self)
+    }
+
+    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        host?.canvasDidEndUsingTool(self)
     }
 
     // MARK: ObjectLayerViewDelegate
@@ -376,5 +519,98 @@ final class PagePlaceholderView: UIView {
             self.imageView.image = image
             self.label.isHidden = true
         }
+    }
+}
+
+
+// MARK: - Ink canvas host
+
+/// Holds the PencilKit canvas and answers `undoManager` with a private one.
+///
+/// PencilKit registers a per-stroke undo action on whatever `UndoManager` the
+/// responder chain provides while a gesture runs. Those registrations are
+/// superseded the moment the stroke is committed to the document, so they have
+/// to be discarded — but the editor's own manager is what a `UITextView` in the
+/// object layer uses, and emptying that would take a student's typing with it.
+/// Giving the canvas its own manager keeps the two apart instead of papering
+/// over the collision.
+final class InkCanvasHostView: UIView {
+    let inkUndoManager = UndoManager()
+    override var undoManager: UndoManager? { inkUndoManager }
+}
+
+// MARK: - Unavailable ink
+
+/// Shown over a page whose ink could not be loaded. It covers the ink layer
+/// only: the PDF background, images and text boxes underneath stay visible and
+/// usable, and the page's asset reference is left exactly as it was.
+final class InkUnavailableView: UIView {
+    var onRetry: (() -> Void)?
+    var message: String = "" {
+        didSet { label.text = message; accessibilityLabel = message }
+    }
+
+    private let label = UILabel()
+    private let button = UIButton(type: .system)
+    private let box = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isUserInteractionEnabled = true
+
+        box.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.94)
+        box.layer.cornerRadius = 12
+        box.layer.borderWidth = 1
+        box.layer.borderColor = UIColor.separator.cgColor
+        box.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(box)
+
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.numberOfLines = 0
+        label.textAlignment = .center
+
+        var config = UIButton.Configuration.borderedProminent()
+        config.title = "Try Again"
+        button.configuration = config
+        button.addAction(UIAction { [weak self] _ in self?.onRetry?() }, for: .touchUpInside)
+
+        let note = UILabel()
+        note.font = .preferredFont(forTextStyle: .footnote)
+        note.adjustsFontForContentSizeCategory = true
+        note.textColor = .secondaryLabel
+        note.numberOfLines = 0
+        note.textAlignment = .center
+        note.text = "Nothing has been changed. Writing on this page is paused so the original is not overwritten."
+
+        let stack = UIStackView(arrangedSubviews: [label, note, button])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            box.centerXAnchor.constraint(equalTo: centerXAnchor),
+            box.centerYAnchor.constraint(equalTo: centerYAnchor),
+            box.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.8),
+            stack.topAnchor.constraint(equalTo: box.topAnchor, constant: 18),
+            stack.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -18),
+            stack.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -20),
+        ])
+        isAccessibilityElement = false
+        accessibilityElements = [label, button]
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Only the box takes touches; the rest of the page stays usable.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden else { return nil }
+        let inBox = box.convert(box.bounds, to: self).contains(point)
+        return inBox ? super.hitTest(point, with: event) : nil
     }
 }

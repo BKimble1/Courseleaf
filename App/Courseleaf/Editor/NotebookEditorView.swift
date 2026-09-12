@@ -28,26 +28,27 @@ final class NotebookEditorChrome {
 struct NotebookEditorView: View {
     private let session: any DocumentSessioning
     private let initialPageID: PageID?
+    private let initialHighlight: PageRect?
     private let appEnvironment: AppEnvironment
     @State private var chrome = NotebookEditorChrome()
 
-    init(session: any DocumentSessioning, initialPageID: PageID?, environment: AppEnvironment) {
+    init(session: any DocumentSessioning, initialPageID: PageID?, initialHighlight: PageRect? = nil,
+         environment: AppEnvironment) {
         self.session = session
         self.initialPageID = initialPageID
+        self.initialHighlight = initialHighlight
         self.appEnvironment = environment
     }
 
     var body: some View {
-        // Only the three input settings the editor needs are read, so the shell
-        // stays free to shape the rest of `AppEnvironment.settings`.
-        let settings = EditorInputSettings(pencilOnly: appEnvironment.settings.pencilOnly,
-                                           fingerDrawing: appEnvironment.settings.fingerDrawing,
-                                           leftHanded: appEnvironment.settings.leftHanded)
+        // Input and gesture settings the editor needs, in one value the shell owns.
+        let settings = appEnvironment.settings.editorInput
         let readingMode = chrome.isReadingMode
         let pageID = chrome.currentPageID ?? session.editor.snapshot.document.pageIDs.first
 
         return EditorHost(session: session,
                           initialPageID: initialPageID,
+                          initialHighlight: initialHighlight,
                           settings: settings,
                           isReadingMode: readingMode,
                           chrome: chrome,
@@ -103,7 +104,12 @@ struct NotebookEditorView: View {
             }
             .sheet(isPresented: $chrome.isShowingExport) {
                 if let pageID {
-                    ExportSheet(session: session, currentPageID: pageID)
+                    ExportSheet(session: session, currentPageID: pageID) { [chrome] in
+                        // Export reads the document, so the document has to be
+                        // what is on screen first.
+                        guard let controller = chrome.controller else { return nil }
+                        return await controller.prepareForDocumentSnapshot()
+                    }
                 }
             }
     }
@@ -114,13 +120,15 @@ struct NotebookEditorView: View {
 struct EditorHost: UIViewControllerRepresentable {
     let session: any DocumentSessioning
     let initialPageID: PageID?
+    let initialHighlight: PageRect?
     let settings: EditorInputSettings
     let isReadingMode: Bool
     let chrome: NotebookEditorChrome
     let appEnvironment: AppEnvironment
 
     func makeUIViewController(context: Context) -> NotebookEditorViewController {
-        let controller = NotebookEditorViewController(session: session, initialPageID: initialPageID, inputSettings: settings)
+        let controller = NotebookEditorViewController(session: session, initialPageID: initialPageID,
+                                                      inputSettings: settings, initialHighlight: initialHighlight)
         let chrome = self.chrome
         chrome.controller = controller
         // After a committed stroke the page's text is stale; hand it to the
@@ -137,6 +145,9 @@ struct EditorHost: UIViewControllerRepresentable {
                 chrome.currentPageIndex = index
                 chrome.pageCount = chrome.controller?.pageIDs.count ?? 1
             }
+        }
+        controller.onSaveFailure = { error in
+            environment.present(error, title: "This notebook could not be saved")
         }
         controller.onReadingModeChange = { value in
             DispatchQueue.main.async {

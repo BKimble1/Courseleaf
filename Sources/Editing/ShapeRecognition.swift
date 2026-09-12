@@ -50,6 +50,17 @@ public enum RecognizedShape: Hashable, Sendable {
     /// Axis-aligned bounds of the shape's outline.
     public var bounds: PageRect { PageRect.bounding(polyline()) ?? .zero }
 
+    /// The angle of the shape's own frame, in radians.
+    public var rotation: Double {
+        switch self {
+        case .line(let a, let b): return atan2(b.y - a.y, b.x - a.x)
+        case .ellipse(_, _, _, let r): return r
+        case .rectangle(let corners):
+            guard corners.count >= 2 else { return 0 }
+            return atan2(corners[1].y - corners[0].y, corners[1].x - corners[0].x)
+        }
+    }
+
     /// Length of the outline. A shape is drawn by travelling its outline once,
     /// so comparing this with the stroke's own length is what separates a
     /// rectangle from a scribble that happens to sit inside the same box.
@@ -229,9 +240,14 @@ public enum ShapeRecognizer {
     // MARK: Rectangle
 
     static func fitRectangle(_ path: [PagePoint], settings: ShapeCorrectionSettings) -> ShapeRecognition? {
-        let axes = StrokeGeometry.principalAxis(path)
-        // A rectangle's principal axis follows its longer side, so the box in
-        // that rotated frame is the rectangle the student meant.
+        // Not the principal axis: a square has no principal axis worth the name,
+        // and the covariance of one drawn by hand lands near 45°, which fits a
+        // diamond around the square and then rejects it as a bad rectangle.
+        // The smallest enclosing box is well defined for every rectangle,
+        // square included, so the orientation comes from that instead.
+        let angle = minimumAreaAngle(path)
+        let axes = (along: PagePoint(x: cos(angle), y: sin(angle)),
+                    across: PagePoint(x: -sin(angle), y: cos(angle)))
         let u = StrokeGeometry.projections(path, onto: axes.along)
         let v = StrokeGeometry.projections(path, onto: axes.across)
         guard let u0 = u.min(), let u1 = u.max(), let v0 = v.min(), let v1 = v.max() else { return nil }
@@ -263,5 +279,116 @@ public enum ShapeRecognizer {
         return ShapeRecognition(shape: .rectangle(corners: corners), confidence: confidence)
     }
 
+    /// Orientation of the smallest-area enclosing box, searched over a quarter
+    /// turn. Exact enough at half a degree, and unlike a covariance estimate it
+    /// does not degenerate when the two sides are the same length.
+    static func minimumAreaAngle(_ path: [PagePoint]) -> Double {
+        var bestAngle = 0.0
+        var bestArea = Double.infinity
+        var step = 0
+        while step < 180 {
+            let angle = Double(step) * Double.pi / 360      // 0.5° steps over 0..<90°
+            let c = cos(angle), s = sin(angle)
+            var minU = Double.infinity, maxU = -Double.infinity
+            var minV = Double.infinity, maxV = -Double.infinity
+            for p in path {
+                let u = p.x * c + p.y * s
+                let v = -p.x * s + p.y * c
+                if u < minU { minU = u }
+                if u > maxU { maxU = u }
+                if v < minV { minV = v }
+                if v > maxV { maxV = v }
+            }
+            let area = (maxU - minU) * (maxV - minV)
+            if area < bestArea { bestArea = area; bestAngle = angle }
+            step += 1
+        }
+        // Report the long side as the frame's own axis, so a corrected
+        // rectangle's first edge is the one the student would call its length.
+        let c = cos(bestAngle), s = sin(bestAngle)
+        var minU = Double.infinity, maxU = -Double.infinity
+        var minV = Double.infinity, maxV = -Double.infinity
+        for p in path {
+            let u = p.x * c + p.y * s
+            let v = -p.x * s + p.y * c
+            if u < minU { minU = u }
+            if u > maxU { maxU = u }
+            if v < minV { minV = v }
+            if v > maxV { maxV = v }
+        }
+        if (maxV - minV) > (maxU - minU) { return bestAngle + Double.pi / 2 }
+        return bestAngle
+    }
+
     static func clamp01(_ value: Double) -> Double { min(max(value, 0), 1) }
+}
+
+
+// MARK: - Adjustment before release
+
+/// Re-shapes a recognised shape while the pen is still down, so the student can
+/// size it before committing. The rule is the same for all three kinds: the
+/// point the stroke started from stays put and the far end follows the pen.
+public enum ShapeAdjustment {
+
+    /// Returns the adjusted shape, or nil when the drag has collapsed it below
+    /// the minimum size — which is how a correction is cancelled without
+    /// lifting: the original stroke is kept instead.
+    public static func dragging(_ shape: RecognizedShape,
+                                anchor: PagePoint,
+                                to point: PagePoint,
+                                settings: ShapeCorrectionSettings = ShapeCorrectionSettings()) -> RecognizedShape? {
+        let rotation = shape.rotation
+        switch shape {
+        case .line(let from, _):
+            var start = from
+            var end = point
+            if settings.snapsLinesToAxis {
+                (start, end) = ShapeRecognizer.snappedToAxis(from: start, to: end, degrees: settings.axisSnapDegrees)
+            }
+            guard start.distance(to: end) >= settings.minimumExtent else { return nil }
+            return .line(from: start, to: end)
+
+        case .ellipse:
+            guard let box = box(from: anchor, to: point, rotation: rotation, settings: settings) else { return nil }
+            return .ellipse(center: box.center, radiusAlong: box.halfAlong, radiusAcross: box.halfAcross, rotation: rotation)
+
+        case .rectangle:
+            guard let box = box(from: anchor, to: point, rotation: rotation, settings: settings) else { return nil }
+            let along = PagePoint(x: cos(rotation), y: sin(rotation))
+            let across = PagePoint(x: -along.y, y: along.x)
+            func corner(_ du: Double, _ dv: Double) -> PagePoint {
+                PagePoint(x: box.center.x + along.x * du + across.x * dv,
+                          y: box.center.y + along.y * du + across.y * dv)
+            }
+            return .rectangle(corners: [corner(-box.halfAlong, -box.halfAcross), corner(box.halfAlong, -box.halfAcross),
+                                        corner(box.halfAlong, box.halfAcross), corner(-box.halfAlong, box.halfAcross)])
+        }
+    }
+
+    private struct Box {
+        var center: PagePoint
+        var halfAlong: Double
+        var halfAcross: Double
+    }
+
+    private static func box(from anchor: PagePoint, to point: PagePoint, rotation: Double,
+                            settings: ShapeCorrectionSettings) -> Box? {
+        let along = PagePoint(x: cos(rotation), y: sin(rotation))
+        let across = PagePoint(x: -along.y, y: along.x)
+        let u0 = anchor.x * along.x + anchor.y * along.y
+        let v0 = anchor.x * across.x + anchor.y * across.y
+        let u1 = point.x * along.x + point.y * along.y
+        let v1 = point.x * across.x + point.y * across.y
+        var halfAlong = abs(u1 - u0) / 2
+        var halfAcross = abs(v1 - v0) / 2
+        guard max(halfAlong, halfAcross) * 2 >= settings.minimumExtent, halfAlong > 1e-6, halfAcross > 1e-6 else { return nil }
+        if settings.snapsEqualSides, abs(halfAlong - halfAcross) <= settings.equalSideTolerance * max(halfAlong, halfAcross) {
+            let h = (halfAlong + halfAcross) / 2
+            halfAlong = h; halfAcross = h
+        }
+        let midU = (u0 + u1) / 2, midV = (v0 + v1) / 2
+        let center = PagePoint(x: along.x * midU + across.x * midV, y: along.y * midU + across.y * midV)
+        return Box(center: center, halfAlong: halfAlong, halfAcross: halfAcross)
+    }
 }

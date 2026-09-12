@@ -29,6 +29,7 @@ struct NotebookScreen: View {
         if let session {
             NotebookEditorView(session: session,
                                initialPageID: initialPageID(in: session),
+                               initialHighlight: target.highlight,
                                environment: env)
         } else if let loadError {
             ContentUnavailableView {
@@ -46,7 +47,9 @@ struct NotebookScreen: View {
     }
 
     /// The page the caller asked for (a search hit, a review item); nil lets the
-    /// editor restore the page the student was last on.
+    /// editor restore the page the student was last on. `target.highlight` rides
+    /// alongside it so the region the student searched for is actually shown —
+    /// the router has carried it since search shipped, and nothing passed it on.
     private func initialPageID(in session: any DocumentSessioning) -> PageID? {
         guard let index = target.pageIndex else { return nil }
         let ids = session.editor.snapshot.document.pageIDs

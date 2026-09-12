@@ -12,6 +12,17 @@ final class PageScrollView: UIScrollView {
         didSet { applyContentSize() }
     }
 
+    /// Space kept clear at the top for the writing controls. Held here rather
+    /// than written straight into `contentInset` because `centerContentIfNeeded`
+    /// owns that inset and would otherwise overwrite it on the next layout pass,
+    /// putting the first page back underneath the toolbar.
+    var chromeInsetTop: CGFloat = 0 {
+        didSet {
+            guard chromeInsetTop != oldValue else { return }
+            centerContentIfNeeded()
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(contentView)
@@ -66,12 +77,14 @@ final class PageScrollView: UIScrollView {
 
     /// Keeps content centred when it is narrower/shorter than the viewport.
     func centerContentIfNeeded() {
+        let available = max(0, bounds.height - chromeInsetTop)
         let inset = UIEdgeInsets(
-            top: max(0, (bounds.height - contentSize.height) / 2),
+            top: chromeInsetTop + max(0, (available - contentSize.height) / 2),
             left: max(0, (bounds.width - contentSize.width) / 2),
             bottom: 0, right: 0)
         if contentInset.left != inset.left || contentInset.top != inset.top {
             contentInset = UIEdgeInsets(top: inset.top, left: inset.left, bottom: contentInset.bottom, right: 0)
+            verticalScrollIndicatorInsets.top = chromeInsetTop
         }
     }
 
@@ -79,6 +92,16 @@ final class PageScrollView: UIScrollView {
     var visibleContentRect: CGRect {
         let z = max(zoomScale, 0.0001)
         return CGRect(x: contentOffset.x / z, y: contentOffset.y / z, width: bounds.width / z, height: bounds.height / z)
+    }
+
+    /// The part of the viewport the student can actually see the page in, in
+    /// unzoomed content space: the visible rect minus the toolbar's band.
+    var unobscuredContentRect: CGRect {
+        let z = max(zoomScale, 0.0001)
+        return CGRect(x: contentOffset.x / z,
+                      y: (contentOffset.y + chromeInsetTop) / z,
+                      width: bounds.width / z,
+                      height: max(bounds.height - chromeInsetTop, 1) / z)
     }
 
     /// Zooms about the viewport centre (or a given content point) keeping it fixed.

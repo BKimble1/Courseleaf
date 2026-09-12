@@ -37,6 +37,8 @@ final class NotebookEditorViewController: UIViewController {
     var onCurrentPageChange: ((PageID, Int) -> Void)?
     /// Called when reading mode is toggled from inside the editor.
     var onReadingModeChange: ((Bool) -> Void)?
+    /// Called when an explicit save could not complete, so the shell can say so.
+    var onSaveFailure: ((Error) -> Void)?
 
     // MARK: State
 
@@ -87,8 +89,14 @@ final class NotebookEditorViewController: UIViewController {
 
     let loader: PageContentLoader
     let thumbnails: ThumbnailCache
+    let inkSerializer: any InkSerializing
     private let toolStateStore = EditorToolStateStore()
+    /// The responder-chain manager. It carries text editing's own undo and a
+    /// single bridging action into the document's history (see
+    /// `refreshSystemUndoBridge`). PencilKit's per-stroke registrations never
+    /// reach it: each canvas has its own (`InkCanvasHostView`).
     private let editorUndoManager = UndoManager()
+    private let historyBridge = EditorHistoryBridge()
     private let selectionController = SelectionController()
     private let imageInsertion = ImageInsertionController()
     private var imageInsertionHost: EditorImageInsertionHost!
@@ -108,14 +116,20 @@ final class NotebookEditorViewController: UIViewController {
     // MARK: Bookkeeping
 
     private let initialPageID: PageID?
+    private let initialHighlight: PageRect?
     private var hasPerformedInitialLayout = false
     private var lastLaidOutSize: CGSize = .zero
     private var assetIDByDigest: [String: AssetID] = [:]
-    private var inkCommitTasks: [PageID: Task<Void, Never>] = [:]
-    private var pendingInkPages: Set<PageID> = []
+    /// Debounce handles only. Correctness never depends on cancelling one:
+    /// a commit that runs anyway is rejected by the page's drawing epoch.
+    private var inkDebounceTasks: [PageID: Task<Void, Never>] = [:]
+    /// One serial chain per page, so two quick strokes reach the document in
+    /// the order they were drawn and become two undo steps, not one.
+    private var inkCommitChains: [PageID: Task<Void, Never>] = [:]
     private var pendingChangeSet = ChangeSet.empty
     private var changeFlushScheduled = false
     private var undoClearScheduled = false
+    private var shapeCandidate: ShapeCandidate?
     private var lastViewedRecordTask: Task<Void, Never>?
     private var highlightClearTask: Task<Void, Never>?
     private weak var navigatorViewController: PageNavigatorViewController?
@@ -126,10 +140,14 @@ final class NotebookEditorViewController: UIViewController {
     // MARK: Life cycle
 
     init(session: any DocumentSessioning, initialPageID: PageID?, inputSettings: EditorInputSettings = EditorInputSettings(),
+         initialHighlight: PageRect? = nil,
+         inkSerializer: any InkSerializing = DetachedInkSerializer(),
          now: @escaping () -> Date = Date.init) {
         self.session = session
         self.initialPageID = initialPageID
+        self.initialHighlight = initialHighlight
         self.inputSettings = inputSettings
+        self.inkSerializer = inkSerializer
         self.now = now
         self.loader = PageContentLoader(assets: SessionAssetProvider(session: session))
         self.thumbnails = ThumbnailCache(loader: loader)
@@ -166,7 +184,7 @@ final class NotebookEditorViewController: UIViewController {
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             barBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             barBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            barBackground.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            barBackground.topAnchor.constraint(equalTo: view.topAnchor),
         ])
 
         pool = PageViewPool(
@@ -188,6 +206,7 @@ final class NotebookEditorViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(applicationWillResignActive),
                                                name: UIApplication.willResignActiveNotification, object: nil)
 
+        historyBridge.controller = self
         reloadDocumentStructure()
         applyToolState()
         applyInputSettings()
@@ -201,7 +220,9 @@ final class NotebookEditorViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        commitAllPendingInk()
+        // Leaving the editor is one of the moments the document has to match the
+        // screen, so it goes through the same barrier export and printing use.
+        endActiveEditing()
         recordLastViewedPageNow()
         flushSoon()
     }
@@ -209,10 +230,15 @@ final class NotebookEditorViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
-        let compact = view.bounds.width < 620 || traitCollection.horizontalSizeClass == .compact
-        if editorToolbar.isCompact != compact { editorToolbar.isCompact = compact }
-        let bottomInset = barBackground.bounds.height
-        if abs(scrollView.contentInset.bottom - bottomInset) > 0.5 { scrollView.contentInset.bottom = bottomInset }
+        // The page starts below the writing controls and never under them.
+        let topInset = barBackground.bounds.height
+        if abs(scrollView.chromeInsetTop - topInset) > 0.5 {
+            let anchor = visiblePageAnchor()
+            scrollView.chromeInsetTop = topInset
+            restore(anchor: anchor)
+        }
+        editorToolbar.availableWidth = editorToolbar.bounds.width > 0 ? editorToolbar.bounds.width
+            : view.bounds.width - 140
 
         if !hasPerformedInitialLayout {
             hasPerformedInitialLayout = true
@@ -223,9 +249,18 @@ final class NotebookEditorViewController: UIViewController {
             scrollToPage(start, animated: false)
             setCurrentPageIndex(start, announce: false)
             updateVisiblePages()
+            // A search hit or a review item asked for a region, not just a page.
+            if let highlight = initialHighlight, let id = pageIDs[safe: start] {
+                revealSearchHit(pageID: id, region: highlight)
+            }
         } else if view.bounds.size != lastLaidOutSize {
+            // Rotation, a Split View drag, the keyboard appearing: keep the
+            // student looking at the same place on the same page instead of
+            // snapping back to the top of it.
+            let anchor = visiblePageAnchor()
             lastLaidOutSize = view.bounds.size
-            rebuildLayout(keepingPageIndex: currentPageIndex)
+            rebuildLayout(keepingPageIndex: nil)
+            restore(anchor: anchor)
         }
     }
 
@@ -237,19 +272,25 @@ final class NotebookEditorViewController: UIViewController {
 
     // MARK: Chrome
 
+    /// The writing controls live at the top, directly under the navigation bar,
+    /// and stay there. They used to sit along the bottom edge, which is where a
+    /// hand rests while writing and where a palm covers them; the page is also
+    /// read from the top down, so chrome above it costs less of the page than
+    /// chrome in the middle of the writing area.
     private func buildChrome() {
         barBackground.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(barBackground)
 
-        pageLabel.font = .preferredFont(forTextStyle: .footnote)
+        pageLabel.font = .preferredFont(forTextStyle: .caption1)
         pageLabel.adjustsFontForContentSizeCategory = true
         pageLabel.textColor = .secondaryLabel
-        pageLabel.textAlignment = .center
+        pageLabel.textAlignment = .right
         pageLabel.accessibilityTraits = .staticText
+        pageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         infoStack.axis = .vertical
         infoStack.alignment = .trailing
-        infoStack.spacing = 2
+        infoStack.spacing = 0
         infoStack.addArrangedSubview(pageLabel)
         infoStack.addArrangedSubview(saveStatusView)
         infoStack.setContentHuggingPriority(.required, for: .horizontal)
@@ -257,23 +298,35 @@ final class NotebookEditorViewController: UIViewController {
 
         editorToolbar.delegate = self
         editorToolbar.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        editorToolbar.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         barStack.axis = .horizontal
         barStack.alignment = .center
-        barStack.spacing = 12
+        barStack.spacing = 10
         barStack.translatesAutoresizingMaskIntoConstraints = false
         barBackground.contentView.addSubview(barStack)
+
+        let hairline = UIView()
+        hairline.backgroundColor = .separator
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        barBackground.contentView.addSubview(hairline)
+
         NSLayoutConstraint.activate([
-            barStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            barStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            barStack.topAnchor.constraint(equalTo: barBackground.contentView.topAnchor, constant: 4),
-            barStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -4),
+            barStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10),
+            barStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10),
+            barStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 2),
+            barStack.bottomAnchor.constraint(equalTo: barBackground.contentView.bottomAnchor, constant: -2),
+            hairline.leadingAnchor.constraint(equalTo: barBackground.contentView.leadingAnchor),
+            hairline.trailingAnchor.constraint(equalTo: barBackground.contentView.trailingAnchor),
+            hairline.bottomAnchor.constraint(equalTo: barBackground.contentView.bottomAnchor),
+            hairline.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
         ])
         arrangeBar()
     }
 
-    /// Tools sit on the side the writing hand does not cover (A17): leading for
-    /// right-handed students, trailing for left-handed ones.
+    /// Handedness moves the info column to the side the writing hand does not
+    /// cover. It does not reverse the tools: a control order that flips when a
+    /// student ticks "left-handed" is a different toolbar, not a mirrored one.
     private func arrangeBar() {
         for subview in barStack.arrangedSubviews {
             barStack.removeArrangedSubview(subview)
@@ -282,6 +335,7 @@ final class NotebookEditorViewController: UIViewController {
         let ordered: [UIView] = inputSettings.leftHanded ? [infoStack, editorToolbar] : [editorToolbar, infoStack]
         for subview in ordered { barStack.addArrangedSubview(subview) }
         infoStack.alignment = inputSettings.leftHanded ? .leading : .trailing
+        editorToolbar.isLeftHanded = inputSettings.leftHanded
     }
 
     private func updateChromeState() {
@@ -351,6 +405,43 @@ final class NotebookEditorViewController: UIViewController {
         updateVisiblePages()
     }
 
+    // MARK: Keeping the student's place
+
+    /// Where the student is looking, in page space. Page index and scroll offset
+    /// both change when the layout does; the page and the point inside it do not.
+    struct PageAnchor {
+        var pageID: PageID
+        /// Point of the page at the top-left of the unobscured viewport.
+        var pagePoint: PagePoint
+        var zoom: CGFloat
+    }
+
+    func visiblePageAnchor() -> PageAnchor? {
+        guard let id = currentPageID, let index = indexByPageID[id],
+              pageLayout.frames.indices.contains(index) else { return nil }
+        let frame = pageLayout.frames[index]
+        let visible = scrollView.unobscuredContentRect
+        return PageAnchor(pageID: id,
+                          pagePoint: PagePoint(x: visible.minX - frame.minX, y: visible.minY - frame.minY),
+                          zoom: scrollView.zoomScale)
+    }
+
+    func restore(anchor: PageAnchor?) {
+        guard let anchor, let index = indexByPageID[anchor.pageID],
+              pageLayout.frames.indices.contains(index) else { return }
+        let frame = pageLayout.frames[index]
+        let zoom = scrollView.zoomScale
+        var offset = CGPoint(x: (frame.minX + anchor.pagePoint.x) * zoom,
+                             y: (frame.minY + anchor.pagePoint.y) * zoom - scrollView.chromeInsetTop)
+        let maxX = max(-scrollView.contentInset.left, scrollView.contentSize.width - scrollView.bounds.width)
+        let maxY = max(-scrollView.contentInset.top, scrollView.contentSize.height - scrollView.bounds.height)
+        offset.x = min(max(offset.x, -scrollView.contentInset.left), maxX)
+        offset.y = min(max(offset.y, -scrollView.contentInset.top), maxY)
+        scrollView.setContentOffset(offset, animated: false)
+        setCurrentPageIndex(index, announce: false)
+        updateVisiblePages()
+    }
+
     private func fitToWidthZoom() -> CGFloat {
         let width = Double(scrollView.bounds.width)
         guard width > 0 else { return 1 }
@@ -388,20 +479,32 @@ final class NotebookEditorViewController: UIViewController {
         canvas.setPencilKitTool(toolState.pencilKitTool)
         canvas.setDrawingPolicy(inputSettings.drawingPolicy)
         canvas.setDisplayZoom(scrollView.zoomScale, screenScale: screenScale)
+        canvas.strokeSampler.onHold = { [weak self, weak canvas] sampler in
+            guard let self, let canvas else { return }
+            self.handleStrokeHold(sampler, on: canvas)
+        }
+        canvas.strokeSampler.onAdjust = { [weak self, weak canvas] sampler in
+            guard let self, let canvas else { return }
+            self.handleStrokeAdjust(sampler, on: canvas)
+        }
         return canvas
     }
 
     private func updateVisiblePages() {
         guard pool != nil, !pageIDs.isEmpty else { return }
-        let visible = scrollView.visibleContentRect
+        let visible = scrollView.unobscuredContentRect
         guard visible.width > 0, visible.height > 0 else { return }
         let prefetch = visible.insetBy(dx: -visible.width * 0.4, dy: -visible.height * 0.6)
         let visibleIndices = pageLayout.indices(intersecting: PageRect(prefetch))
         let focus = pageLayout.focusIndex(forVisibleRect: PageRect(visible))
         let update = pool.update(pageIDs: pageIDs, visibleIndices: visibleIndices, focusIndex: focus)
         for canvas in update.evictedCanvases {
-            // Never drop ink that has not reached the document yet.
+            // Never drop ink that has not reached the document yet. With a
+            // commit queued at every gesture boundary this is usually already
+            // clean, so the synchronous encode is a rare fallback rather than
+            // part of scrolling.
             commitInkImmediately(canvas: canvas)
+            forgetInkState(for: canvas.pageID)
             selectionController.detach(from: canvas)
             canvas.removeFromSuperview()
         }
@@ -496,66 +599,108 @@ final class NotebookEditorViewController: UIViewController {
 
     // MARK: Ink commits
 
-    /// A `PKDrawing` handed to a background task for serialization. The value is
-    /// immutable; the box only states that to the compiler.
-    private struct InkPayload: @unchecked Sendable {
-        let drawing: PKDrawing
-    }
+    /// Safety net for drawing changes that arrive without a gesture ending
+    /// (PencilKit's own undo, for instance). The *undo boundary* is the end of
+    /// a gesture, not this timer: the timer only bounds how long a change can
+    /// sit in a view without reaching the document.
+    static let inkCommitDebounce: TimeInterval = 0.3
 
-    private func scheduleInkCommit(for canvas: PageCanvasView) {
+    /// Queues a commit of `canvas`'s drawing. `atGestureBoundary` means a
+    /// pen-down-to-pen-up gesture just ended, which is where an undo step ends.
+    private func scheduleInkCommit(for canvas: PageCanvasView, atGestureBoundary: Bool) {
         let pageID = canvas.pageID
-        pendingInkPages.insert(pageID)
-        inkCommitTasks[pageID]?.cancel()
-        inkCommitTasks[pageID] = Task { [weak self] in
-            // Debounce: a commit happens after the stroke ends, never per sample.
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.commitInk(pageID: pageID)
-        }
-    }
-
-    private func commitInk(pageID: PageID) async {
-        inkCommitTasks[pageID] = nil
-        guard pendingInkPages.contains(pageID), let canvas = pool.canvas(for: pageID) else { return }
-        let drawing = canvas.drawing
-        guard !drawing.strokes.isEmpty else {
-            applyInkCommit(canvas: canvas, assetID: nil)
+        inkDebounceTasks[pageID]?.cancel()
+        inkDebounceTasks[pageID] = nil
+        guard !atGestureBoundary else {
+            enqueueInkCommit(for: canvas)
             return
         }
-        // Serialization and hashing stay off the drawing path (§7).
-        let payload = InkPayload(drawing: drawing)
-        let encoded = await Task.detached(priority: .userInitiated) { () -> (Data, String) in
-            let data = payload.drawing.dataRepresentation()
-            return (data, EditorAssets.sha256Hex(data))
-        }.value
-        guard !Task.isCancelled, let liveCanvas = pool.canvas(for: pageID), pendingInkPages.contains(pageID) else { return }
-        let assetID = registerAsset(data: encoded.0, digest: encoded.1, mediaType: .inkDrawing)
-        applyInkCommit(canvas: liveCanvas, assetID: assetID)
-    }
-
-    /// Commits the canvas's current drawing right now (eviction, page change, leaving the editor).
-    private func commitInkImmediately(canvas: PageCanvasView) {
-        let pageID = canvas.pageID
-        guard pendingInkPages.contains(pageID) else { return }
-        inkCommitTasks[pageID]?.cancel()
-        inkCommitTasks[pageID] = nil
-        applyInkCommit(canvas: canvas, assetID: registerInkAsset(canvas.drawing))
-    }
-
-    private func commitAllPendingInk() {
-        for pageID in pendingInkPages {
-            guard let canvas = pool?.canvas(for: pageID) else { continue }
-            commitInkImmediately(canvas: canvas)
+        inkDebounceTasks[pageID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.inkCommitDebounce * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.inkDebounceTasks[pageID] = nil
+            guard let canvas = self.pool?.canvas(for: pageID) else { return }
+            self.enqueueInkCommit(for: canvas)
         }
-        pendingInkPages.removeAll()
     }
 
-    private func applyInkCommit(canvas: PageCanvasView, assetID: AssetID?) {
+    /// Takes a snapshot of the page's drawing and chains its serialization
+    /// behind any snapshot already queued for that page, so results are applied
+    /// in the order they were taken.
+    private func enqueueInkCommit(for canvas: PageCanvasView) {
+        guard canvas.hasUncommittedDrawing else { return }
         let pageID = canvas.pageID
-        pendingInkPages.remove(pageID)
-        guard let layerID = canvas.inkLayerID else { return }
-        guard assetID != canvas.currentInkAssetID else { return }
-        canvas.noteInkCommitted(assetID: assetID)
+        let generation = canvas.drawingGeneration
+        let epoch = canvas.drawingEpoch
+        let drawing = canvas.drawing
+        let previous = inkCommitChains[pageID]
+        inkCommitChains[pageID] = Task { [weak self] in
+            await previous?.value
+            await self?.commitInk(pageID: pageID, drawing: drawing, generation: generation, epoch: epoch)
+        }
+    }
+
+    /// Serializes one snapshot and writes it to the document — unless the page's
+    /// drawing was re-established in the meantime, in which case the snapshot
+    /// describes ink that no longer exists and is thrown away. Nothing about
+    /// this depends on having cancelled a task: a stale result that runs to
+    /// completion still writes nothing and still leaves the page marked dirty,
+    /// so the newer snapshot behind it is the one that lands.
+    private func commitInk(pageID: PageID, drawing: PKDrawing, generation: Int, epoch: Int) async {
+        guard let canvas = pool?.canvas(for: pageID), canvas.drawingEpoch == epoch,
+              generation > canvas.committedDrawingGeneration else { return }
+        var assetID: AssetID?
+        if !drawing.strokes.isEmpty {
+            let encoded = await inkSerializer.encode(drawing)
+            guard let live = pool?.canvas(for: pageID), live === canvas, live.drawingEpoch == epoch,
+                  generation > live.committedDrawingGeneration else { return }
+            assetID = registerAsset(data: encoded.data, digest: encoded.sha256, mediaType: .inkDrawing)
+        }
+        applyInkCommit(canvas: canvas, assetID: assetID, generation: generation)
+    }
+
+    /// Commits the canvas's current drawing right now, on the main actor
+    /// (eviction, page change, export, undo, leaving the editor). It closes the
+    /// page's drawing epoch, so any serialization still running in the
+    /// background is discarded instead of landing on top afterwards.
+    @discardableResult
+    private func commitInkImmediately(canvas: PageCanvasView) -> Bool {
+        inkDebounceTasks[canvas.pageID]?.cancel()
+        inkDebounceTasks[canvas.pageID] = nil
+        guard canvas.hasUncommittedDrawing else { return false }
+        let generation = canvas.drawingGeneration
+        let drawing = canvas.drawing
+        canvas.closeDrawingEpoch()
+        let assetID = drawing.strokes.isEmpty ? nil : registerInkAsset(drawing)
+        applyInkCommit(canvas: canvas, assetID: assetID, generation: generation)
+        return true
+    }
+
+    @discardableResult
+    private func commitAllPendingInk() -> Bool {
+        var committed = false
+        for canvas in liveCanvases where commitInkImmediately(canvas: canvas) { committed = true }
+        return committed
+    }
+
+    /// True when a live page is holding ink the document has not been told about.
+    var hasUncommittedInk: Bool { liveCanvases.contains(where: \.hasUncommittedDrawing) }
+
+    private func applyInkCommit(canvas: PageCanvasView, assetID: AssetID?, generation: Int) {
+        let pageID = canvas.pageID
+        guard let layerID = canvas.inkLayerID else {
+            // Nowhere to write it: the page has no ink layer, so there is
+            // nothing outstanding for this page and no reason to keep retrying.
+            canvas.noteInkCommitted(assetID: canvas.currentInkAssetID, generation: generation)
+            return
+        }
+        guard assetID != canvas.currentInkAssetID else {
+            // Round-tripped to the ink the document already holds. Mark it
+            // committed anyway — leaving it dirty would spin forever.
+            canvas.noteInkCommitted(assetID: assetID, generation: generation)
+            return
+        }
+        canvas.noteInkCommitted(assetID: assetID, generation: generation)
         performDocumentOperation("Draw") {
             try session.apply(.replaceInk(pageID, layerID, dataAssetID: assetID))
         }
@@ -563,51 +708,139 @@ final class NotebookEditorViewController: UIViewController {
         onPageNeedsRecognition?(pageID)
     }
 
+    /// Drops everything queued for a page that no longer exists.
+    private func forgetInkState(for pageID: PageID) {
+        inkDebounceTasks[pageID]?.cancel()
+        inkDebounceTasks[pageID] = nil
+        inkCommitChains[pageID]?.cancel()
+        inkCommitChains[pageID] = nil
+    }
+
+    // MARK: Edit barrier
+
+    /// The one place that finishes everything held only in UIKit views and then
+    /// makes the document durable. Export, printing, destructive page
+    /// operations, leaving the editor and backgrounding all go through it,
+    /// because `session.flush()` on its own cannot see a stroke that is still
+    /// only in a `PKCanvasView` or a word still only in a `UITextView`.
+    ///
+    /// Returns nil on success, or the error that stopped the save.
+    @discardableResult
+    func prepareForDocumentSnapshot() async -> Error? {
+        endActiveEditing()
+        flushDocumentChanges()
+        // Anything already queued for serialization has to land before the
+        // snapshot is taken; `endActiveEditing` closed every live page's epoch,
+        // so these chains resolve to no-ops, but waiting keeps the ordering honest.
+        let chains = Array(inkCommitChains.values)
+        for chain in chains { await chain.value }
+        do {
+            try await session.flush()
+            return nil
+        } catch {
+            return error
+        }
+    }
+
     // MARK: Undo
 
     override var undoManager: UndoManager? { editorUndoManager }
 
-    /// PencilKit registers per-stroke undo on the shared manager while a gesture
-    /// runs. The committed `replaceInk` command supersedes it, so the manager is
-    /// emptied once the run loop that produced the change has finished.
-    private func discardPencilKitUndoRegistrations() {
+    /// PencilKit registers a per-stroke undo action while a gesture runs. Those
+    /// registrations live on each canvas's own manager (`InkCanvasHostView`),
+    /// never on the editor's, and are superseded the moment the stroke is
+    /// committed as a `replaceInk` command — so they are discarded there and
+    /// nowhere else. Text editing's undo, on the editor's manager, is untouched.
+    private func discardInkUndoRegistrations() {
         guard !undoClearScheduled else { return }
         undoClearScheduled = true
         // Next run loop: any implicit per-event group has closed by then.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.undoClearScheduled = false
-            self.clearUndoRegistrations()
+            self.clearInkUndoRegistrations()
         }
     }
 
-    private func clearUndoRegistrations() {
-        guard editorUndoManager.groupingLevel == 0,
-              !editorUndoManager.isUndoing, !editorUndoManager.isRedoing else { return }
-        editorUndoManager.removeAllActions()
+    private func clearInkUndoRegistrations() {
+        for canvas in liveCanvases {
+            let manager = canvas.canvasHost.inkUndoManager
+            guard manager.groupingLevel == 0, !manager.isUndoing, !manager.isRedoing else { continue }
+            manager.removeAllActions()
+        }
     }
 
+    /// Undo, from every entry point: ⌘Z, the toolbar, the Edit menu and the
+    /// three-finger swipe. Pending ink is committed *first*, so the stroke that
+    /// was just finished is in the history before we ask whether there is any.
+    /// Checking `canUndo` before committing was why a first stroke could not be
+    /// undone until the save debounce happened to have fired.
     func performUndo() {
-        guard session.canUndo else { return }
         endActiveEditing()
+        guard session.canUndo else { return }
         session.undo()
-        clearUndoRegistrations()
+        discardInkUndoRegistrations()
+        refreshSystemUndoBridge()
         updateChromeState()
     }
 
     func performRedo() {
-        guard session.canRedo else { return }
         endActiveEditing()
+        guard session.canRedo else { return }
         session.redo()
-        clearUndoRegistrations()
+        discardInkUndoRegistrations()
+        refreshSystemUndoBridge()
         updateChromeState()
     }
 
+    /// Finishes anything a UIKit view is still holding: the text box being
+    /// typed into and every page's uncommitted ink.
     private func endActiveEditing() {
         for canvas in liveCanvases {
-            commitInkImmediately(canvas: canvas)
             canvas.objectLayer.endTextEditing()
+            commitInkImmediately(canvas: canvas)
         }
+    }
+
+    /// Keeps the responder-chain manager in step with the document's history so
+    /// the Edit menu and the iPad three-finger swipe step the same stack the
+    /// toolbar and ⌘Z do. It stores no edit of its own: at most one action,
+    /// which asks the document to step and is re-armed afterwards.
+    private func refreshSystemUndoBridge() {
+        guard editorUndoManager.groupingLevel == 0 else { return }
+        if editorUndoManager.isUndoing {
+            if session.canRedo {
+                editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.redo() }
+            }
+            return
+        }
+        if editorUndoManager.isRedoing {
+            if session.canUndo {
+                editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.undo() }
+            }
+            return
+        }
+        editorUndoManager.removeAllActions(withTarget: historyBridge)
+        guard session.canUndo else { return }
+        editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.undo() }
+        editorUndoManager.setActionName(session.editor.undoActionName ?? "Change")
+    }
+
+    // MARK: Standard edit actions
+
+    @objc func undo(_ sender: Any?) { performUndo() }
+    @objc func redo(_ sender: Any?) { performRedo() }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(undo(_:)) { return isEditingText ? false : session.canUndo }
+        if action == #selector(redo(_:)) { return isEditingText ? false : session.canRedo }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    /// True while a text box is being typed into. Page and history shortcuts
+    /// stand down so the keyboard's own cursor movement and undo still work.
+    var isEditingText: Bool {
+        liveCanvases.contains { $0.objectLayer.editingTextID != nil }
     }
 
     // MARK: Document operations
@@ -618,7 +851,7 @@ final class NotebookEditorViewController: UIViewController {
         } catch {
             presentEditingFailure(name: name, error: error)
         }
-        editorUndoManager.setActionName(name)
+        refreshSystemUndoBridge()
         updateChromeState()
     }
 
@@ -691,8 +924,18 @@ final class NotebookEditorViewController: UIViewController {
     }
 
     private func flushSoon() {
-        let session = self.session
-        Task { try? await session.flush() }
+        Task { [weak self] in
+            guard let self else { return }
+            if let error = await self.prepareForDocumentSnapshot() { self.noteSaveFailure(error) }
+        }
+    }
+
+    /// A failed save is never silent: the badge already shows the scheduler's
+    /// status, and this keeps the retry affordance honest for failures raised
+    /// by an explicit flush rather than by the scheduler.
+    private func noteSaveFailure(_ error: Error) {
+        saveStatusView.update(session.saveStatus)
+        onSaveFailure?(error)
     }
 
     @objc private func applicationWillResignActive() {
@@ -752,6 +995,10 @@ final class NotebookEditorViewController: UIViewController {
     override var canBecomeFirstResponder: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
+        // While a text box is being typed into, the keyboard belongs to it:
+        // arrows move the cursor and ⌘Z undoes typing. Registering page and
+        // history commands here would take both away.
+        guard !isEditingText else { return nil }
         let undo = UIKeyCommand(title: "Undo", action: #selector(handleUndoKey), input: "z", modifierFlags: .command)
         let redo = UIKeyCommand(title: "Redo", action: #selector(handleRedoKey), input: "z", modifierFlags: [.command, .shift])
         let zoomIn = UIKeyCommand(title: "Zoom In", action: #selector(handleZoomInKey), input: "+", modifierFlags: .command)
@@ -839,8 +1086,10 @@ extension NotebookEditorViewController: UIScrollViewDelegate {
 extension NotebookEditorViewController: PageCanvasViewHost {
     func canvasDrawingDidChange(_ canvas: PageCanvasView) {
         guard !isReadingMode else { return }
-        discardPencilKitUndoRegistrations()
-        scheduleInkCommit(for: canvas)
+        discardInkUndoRegistrations()
+        // Not a boundary: the gesture may still be running. The timer is only a
+        // backstop for changes that arrive without one (PencilKit's own undo).
+        scheduleInkCommit(for: canvas, atGestureBoundary: false)
         thumbnails.invalidate(pageID: canvas.pageID)
     }
 
@@ -848,6 +1097,164 @@ extension NotebookEditorViewController: PageCanvasViewHost {
         selectionController.clearSelection()
         canvas.objectLayer.endTextEditing()
         if let index = indexByPageID[canvas.pageID] { setCurrentPageIndex(index, announce: false) }
+        shapeCandidate = nil
+        canvas.hideShapePreview()
+        canvas.strokeCountAtGestureStart = canvas.drawing.strokes.count
+    }
+
+    func canvasDidEndUsingTool(_ canvas: PageCanvasView) {
+        let samples = canvas.strokeSampler.samples
+        let candidate = shapeCandidate
+        canvas.strokeSampler.clear()
+        shapeCandidate = nil
+        canvas.hideShapePreview()
+        guard !isReadingMode else { return }
+        // A finished gesture is an undo boundary, whatever the save timer is
+        // doing. The two gestures get first refusal on it; if neither claims it,
+        // it is committed as ordinary ink.
+        if applyShapeCorrection(candidate, on: canvas) { return }
+        if applyScribbleErase(samples: samples, on: canvas) { return }
+        scheduleInkCommit(for: canvas, atGestureBoundary: true)
+    }
+
+    // MARK: Pen gestures
+
+    /// A shape offered while the pen is still down. `base` is the fit taken at
+    /// the moment of the hold; `shape` is that fit after any dragging since.
+    private struct ShapeCandidate {
+        var pageID: PageID
+        var base: RecognizedShape
+        var shape: RecognizedShape
+        var anchor: PagePoint
+        var confidence: Double
+    }
+
+    var shapeSettings: ShapeCorrectionSettings {
+        var settings = ShapeCorrectionSettings()
+        settings.snapsLinesToAxis = inputSettings.snapsShapesToAxis
+        settings.snapsEqualSides = inputSettings.snapsShapesToAxis
+        return settings
+    }
+
+    var scribbleEraseSettings: ScribbleEraseSettings { ScribbleEraseSettings() }
+
+    /// Tools scribble erase is offered for. Deliberately short: a highlighter
+    /// crossing a word out is how a student highlights, and an eraser is
+    /// already an eraser.
+    static let scribbleEraseTools: Set<InkToolKind> = [.pen, .pencil]
+
+    private func handleStrokeHold(_ sampler: StrokeSamplingGestureRecognizer, on canvas: PageCanvasView) {
+        guard inputSettings.shapeCorrection, !isReadingMode, case .ink = toolState.tool else { return }
+        guard shapeCandidate == nil else { return }
+        let points = sampler.samplesAtHold.map(\.location)
+        guard let anchor = points.first,
+              let recognition = ShapeRecognizer.recognize(points, settings: shapeSettings) else { return }
+        shapeCandidate = ShapeCandidate(pageID: canvas.pageID, base: recognition.shape,
+                                        shape: recognition.shape, anchor: anchor,
+                                        confidence: recognition.confidence)
+        showShapePreview(on: canvas)
+        UIAccessibility.post(notification: .announcement,
+                             argument: "\(Self.shapeName(recognition.shape)) ready. Lift the pen to use it.")
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func handleStrokeAdjust(_ sampler: StrokeSamplingGestureRecognizer, on canvas: PageCanvasView) {
+        guard var candidate = shapeCandidate, candidate.pageID == canvas.pageID,
+              let current = sampler.currentPoint else { return }
+        guard let adjusted = ShapeAdjustment.dragging(candidate.base, anchor: candidate.anchor,
+                                                      to: current, settings: shapeSettings) else {
+            // Dragged back down to nothing: that is how the correction is
+            // cancelled without lifting. The stroke as drawn is kept.
+            shapeCandidate = nil
+            canvas.hideShapePreview()
+            return
+        }
+        candidate.shape = adjusted
+        shapeCandidate = candidate
+        showShapePreview(on: canvas)
+    }
+
+    private func showShapePreview(on canvas: PageCanvasView) {
+        guard let candidate = shapeCandidate else { return }
+        let preset = toolState.preset(for: toolState.lastInkTool)
+        canvas.showShapePreview(candidate.shape, color: UIColor(preset.color), width: CGFloat(preset.width))
+    }
+
+    static func shapeName(_ shape: RecognizedShape) -> String {
+        switch shape {
+        case .line: return "Straight line"
+        case .ellipse(_, let a, let b, _): return abs(a - b) < 0.001 ? "Circle" : "Ellipse"
+        case .rectangle(let corners):
+            guard corners.count == 4 else { return "Rectangle" }
+            let side = corners[0].distance(to: corners[1])
+            let other = corners[1].distance(to: corners[2])
+            return abs(side - other) < 0.001 ? "Square" : "Rectangle"
+        }
+    }
+
+    /// Replaces the stroke the gesture just drew with the corrected shape, as
+    /// ordinary ink in the same tool. Nothing new is persisted: the shape is a
+    /// `PKStroke` like any other, so it erases, lassos, exports and prints the
+    /// way handwriting does.
+    private func applyShapeCorrection(_ candidate: ShapeCandidate?, on canvas: PageCanvasView) -> Bool {
+        guard let candidate, candidate.pageID == canvas.pageID else { return false }
+        let drawing = canvas.drawing
+        guard drawing.strokes.count == canvas.strokeCountAtGestureStart + 1,
+              let raw = drawing.strokes.last else { return false }
+        let width = raw.path.first?.size.width ?? CGFloat(toolState.preset(for: toolState.lastInkTool).width)
+        guard let corrected = InkStrokeBuilder.stroke(along: candidate.shape.polyline(), ink: raw.ink, width: width) else {
+            return false
+        }
+        var strokes = Array(drawing.strokes.dropLast())
+        strokes.append(corrected)
+        commitReplacementDrawing(PKDrawing(strokes: strokes), on: canvas, named: Self.shapeName(candidate.shape))
+        return true
+    }
+
+    /// Crossing existing handwriting out with the pen erases it. The decision is
+    /// `ScribbleEraseRecognizer`'s; this only supplies the page's strokes as
+    /// geometry and applies the result as one undoable operation.
+    private func applyScribbleErase(samples: [StrokeSample], on canvas: PageCanvasView) -> Bool {
+        guard inputSettings.scribbleErase, !isReadingMode, !samples.isEmpty else { return false }
+        guard case .ink(let kind) = toolState.tool, Self.scribbleEraseTools.contains(kind) else { return false }
+        let drawing = canvas.drawing
+        guard drawing.strokes.count == canvas.strokeCountAtGestureStart + 1 else { return false }
+        let scribbleIndex = drawing.strokes.count - 1
+        let targets = canvas.inkTargets().filter { $0.index != scribbleIndex }
+        guard !targets.isEmpty else { return false }
+        let preset = toolState.preset(for: kind)
+        let decision = ScribbleEraseRecognizer.decide(samples: samples, targets: targets,
+                                                      gestureHalfWidth: preset.width / 2,
+                                                      settings: scribbleEraseSettings)
+        guard case .erase(let indices) = decision.verdict, !indices.isEmpty else { return false }
+        // The command scribble goes with the strokes it crossed out, so undo
+        // restores the page as it was and never leaves the scribble behind.
+        let remaining = PencilKitDrawing(drawing: drawing).removingStrokes(indices + [scribbleIndex])
+        commitReplacementDrawing(remaining.drawing, on: canvas, named: "Erase")
+        UIAccessibility.post(notification: .announcement,
+                             argument: "Erased \(indices.count) stroke\(indices.count == 1 ? "" : "s")")
+        return true
+    }
+
+    /// Writes a whole replacement drawing for a page in one grouped document
+    /// operation, so the change is exactly one undo step.
+    private func commitReplacementDrawing(_ drawing: PKDrawing, on canvas: PageCanvasView, named name: String) {
+        guard let layerID = canvas.inkLayerID else { return }
+        inkDebounceTasks[canvas.pageID]?.cancel()
+        inkDebounceTasks[canvas.pageID] = nil
+        let assetID = drawing.strokes.isEmpty ? nil : registerInkAsset(drawing)
+        performDocumentOperation(name) {
+            try session.apply(.replaceInk(canvas.pageID, layerID, dataAssetID: assetID))
+        }
+        // Marks the canvas clean and closes its epoch, so any serialization
+        // already running for this page is discarded instead of landing after.
+        canvas.setDrawing(drawing, assetID: assetID)
+        thumbnails.invalidate(pageID: canvas.pageID)
+        onPageNeedsRecognition?(canvas.pageID)
+    }
+
+    func canvasWantsInkReload(_ canvas: PageCanvasView) {
+        canvas.reloadInk()
     }
 
     func canvas(_ canvas: PageCanvasView, tapeWantsRevealed id: ObjectID, revealed: Bool) {
@@ -965,6 +1372,24 @@ extension NotebookEditorViewController: EditorToolbarDelegate {
         presentColorPicker(anchor: anchor, anchorRect: anchor.bounds, current: current, completion: completion)
     }
 
+    func toolbar(_ toolbar: EditorToolbar, requestsFavoritesEditorFrom anchor: UIView) {
+        let host = UIHostingController(rootView: FavoritesEditorView(favorites: toolState.favorites) { [weak self] favorites in
+            guard let self else { return }
+            var state = self.toolState
+            state.favorites = Array(favorites.prefix(EditorToolState.maxFavorites))
+            if let active = state.activeFavoriteID, !state.favorites.contains(where: { $0.id == active }) {
+                state.activeFavoriteID = nil
+            }
+            self.toolState = state
+        })
+        host.modalPresentationStyle = .popover
+        host.preferredContentSize = CGSize(width: 400, height: 520)
+        host.popoverPresentationController?.sourceView = anchor
+        host.popoverPresentationController?.sourceRect = anchor.bounds
+        host.popoverPresentationController?.delegate = self
+        present(host, animated: true)
+    }
+
     func toolbar(_ toolbar: EditorToolbar, requestsTextStyleFrom anchor: UIView) {
         let host = UIHostingController(rootView: TextStylePopoverView(style: toolState.textStyle) { [weak self] style in
             self?.applyTextStyle(style)
@@ -990,12 +1415,16 @@ extension NotebookEditorViewController: EditorToolbarDelegate {
         alert.addAction(UIAlertAction(title: "Clear Page", style: .destructive) { [weak self] _ in
             guard let self else { return }
             self.selectionController.clearSelection()
-            self.pendingInkPages.remove(pageID)
-            self.inkCommitTasks[pageID]?.cancel()
-            self.inkCommitTasks[pageID] = nil
-            self.canvas(for: pageID)?.setDrawing(PKDrawing(), assetID: nil)
+            // Commit what is on the canvas *before* clearing it, so undo puts
+            // back the stroke that was just drawn and not the older ink the
+            // document happened to be holding.
+            if let canvas = self.canvas(for: pageID) { self.commitInkImmediately(canvas: canvas) }
             self.performDocumentOperation("Clear Page") {
                 try self.session.apply(.clearPage(pageID))
+            }
+            // The document is now the authority again; reload the canvas from it.
+            if let canvas = self.canvas(for: pageID), let page = self.session.editor.page(pageID) {
+                canvas.setDrawing(PKDrawing(), assetID: page.inkLayers.first?.dataAssetID)
             }
             self.thumbnails.invalidate(pageID: pageID)
         })
@@ -1066,9 +1495,13 @@ extension NotebookEditorViewController: PageNavigatorDelegate {
     func navigator(_ navigator: PageNavigatorViewController, deletePageAt index: Int) {
         guard let id = pageIDs[safe: index] else { return }
         selectionController.clearSelection()
+        // Finish anything still in a view first: a page is about to be removed,
+        // and a queued commit for it would otherwise resolve against nothing.
+        endActiveEditing()
         performDocumentOperation("Delete Page") {
             try session.apply(.deletePage(id))
         }
+        forgetInkState(for: id)
         flushDocumentChanges()
     }
 
@@ -1155,4 +1588,18 @@ final class EditorColorPickerBridge: NSObject, UIColorPickerViewControllerDelega
         guard !continuously else { return }
         completion(color.rgbaColor)
     }
+}
+
+
+// MARK: - System undo bridge
+
+/// The object the responder-chain `UndoManager` registers its single bridging
+/// action against. Keeping it separate from the view controller is what lets
+/// `removeAllActions(withTarget:)` clear the bridge without touching a text
+/// view's own undo registrations on the same manager.
+@MainActor
+final class EditorHistoryBridge: NSObject {
+    weak var controller: NotebookEditorViewController?
+    func undo() { controller?.performUndo() }
+    func redo() { controller?.performRedo() }
 }
