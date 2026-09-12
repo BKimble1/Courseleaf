@@ -51,12 +51,43 @@ Record each `swift test` run used as evidence (command, commit, result line).
 |---|---|---|---|
 | 2026-09-12 | `3b105a5` | `export PATH=/opt/swift-root/usr/bin:$PATH && swift test --scratch-path .build-docs` (Linux x86_64, Swift 6.2.4, SQLite 3.45.1) | `Executed 203 tests, with 0 failures (0 unexpected) in 13.845 (13.845) seconds`; `Test Suite 'All tests' passed` |
 | 2026-09-12 | `3b105a5` | `swift test --scratch-path .build-docs --parallel` (same toolchain) | 203/203 tests passed, exit code 0 |
+| 2026-09-12 | `683238a` | `swift test` (same toolchain), after the Workspace façade landed | `Executed 219 tests, with 0 failures (0 unexpected) in 13.344 seconds` |
+| 2026-09-12 | `2de9721` | `swift test --parallel`, after the whole app layer landed | 219/219 tests passed, exit code 0 |
+| 2026-09-12 | `2de9721` | `swift run fixturegen <dir>` then `diff -r Fixtures <dir>` | no differences: all 19 fixtures (410,348 bytes) regenerate byte-identically |
 
 Per-target counts at `3b105a5`: DocumentCoreTests 23, PageGeometryTests 18,
 EditingTests 31, PersistenceTests 27, ArchiveTests 60, CatalogTests 28,
-FixturesTests 15, WorkspaceTests 1 (API-only placeholder; total 203). Coverage of
-`Sources/Workspace` is a single type-equality test; `LibraryService` and
-`DocumentSession` do not exist yet.
+FixturesTests 15, WorkspaceTests 1 (API-only placeholder; total 203).
+
+Per-target counts at `2de9721`: the same, with WorkspaceTests at 17 real
+end-to-end tests instead of the placeholder (total 219). `LibraryService` and
+`DocumentSession` now exist and are exercised: create/edit/flush/reopen, save
+status ordering and latency, undo through the session, PDF and image import
+against the alignment and 300-page fixtures, archive export and restore-as-copy,
+validated library backup and both restore modes, trash, search scoping with
+recognition invalidation, the course review queue, catalog rebuild, and a
+document whose schema is too new.
+
+## Continuous integration evidence
+
+Every row is a real GitHub Actions run on the pushed commit
+(`.github/workflows/courseleaf.yml`). CI is the only place an Apple SDK is
+available in this project's remote sessions.
+
+| Date | Commit | Job | Result |
+|---|---|---|---|
+| 2026-09-12 | `3b105a5` | `core-linux` (`swift:6.2-noble` container) | success: build + `swift test --parallel` |
+| 2026-09-12 | `683238a` | `core-linux` | success |
+| 2026-09-12 | `1f316ea` | `core-linux` | success |
+| 2026-09-12 | `453373a` | `core-linux` | success |
+| 2026-09-12 | `1f316ea` | `app-ios-simulator`, step "Core package builds with Xcode toolchain (macOS)" | success on Xcode 26.3 (17C529) |
+| 2026-09-12 | `453373a` | `app-ios-simulator`, package targets | DocumentCore, PageGeometry, Persistence, Catalog, CSQLite, Editing, Archive, Fixtures and Workspace all compiled for `arm64-apple-ios-simulator` (iOS 26.2 SDK) |
+
+The app target itself had not compiled at `453373a`; the errors it surfaced are
+recorded in the repository history (missing Workspace product, a system-library
+target Xcode cannot resolve, a caseless enum with a raw type, four editor type
+errors). No simulator **test run** has completed yet, so no `sim` row in the
+A01–A20 table has moved off `pending`.
 
 ## Performance targets
 
@@ -81,5 +112,9 @@ measurement and agree a revised product limit here rather than adjusting the tes
 
 ## Unresolved failures
 
-None. The `3b105a5` portable run passed 203/203. No simulator or device run has
-been performed; every `sim`/`device` row above is open, not passed.
+No portable test is failing: the `2de9721` run passed 219/219 on Linux, and the
+same suite passes in CI. No simulator test run and no device run has completed,
+so every `sim` and `device` row above is open, not passed. The simulator suite
+(58 test functions under `App/CourseleafTests`) has been written but has never
+executed; treat it as unverified until a CI `app-ios-simulator` run reports it
+here.
