@@ -53,7 +53,10 @@ jobs:
       APP_BUNDLE_ID: com.idlery.courseleaf
       APP_APPLE_ID: "6811381700"
       TEAM_ID: "7GNFT94A9L"
-      TESTFLIGHT_GROUP: "Personal Testing"
+      # Apple's exact name for the app's one internal group. add-build matches
+      # by name, and this was "Personal Testing" until a release reached the
+      # assignment step and found no such group.
+      TESTFLIGHT_GROUP: "Courseleaf Testing Group"
       MARKETING_VERSION: ${{ inputs.marketing_version || '1.0.0' }}
       DRY_RUN: ${{ github.event_name == 'create' && startsWith(github.event.ref, 'release/dry-run-') || inputs.dry_run }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
