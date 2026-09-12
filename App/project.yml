@@ -41,6 +41,13 @@ targets:
       properties:
         CFBundleDisplayName: Courseleaf
         CFBundleName: Courseleaf
+        # Without these two, XcodeGen writes its own defaults — a literal "1.0"
+        # and "1" — into the generated Info.plist, and the MARKETING_VERSION and
+        # CURRENT_PROJECT_VERSION the release passes to xcodebuild are ignored.
+        # The build number matching was luck the first time and would have
+        # uploaded build 2 as build 1, which App Store Connect rejects.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UIRequiresFullScreen: false
         UISupportedInterfaceOrientations~ipad:
@@ -76,6 +83,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.idlery.courseleaf
+        # Repeated from the project settings because supportedDestinations: [iOS]
+        # above expands to the universal "1,2" on this target, which quietly beat
+        # the project-level "2" and built an iPhone-and-iPad app. A target-level
+        # value wins, so the shipped app is iPad-only as intended.
+        TARGETED_DEVICE_FAMILY: "2"
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
