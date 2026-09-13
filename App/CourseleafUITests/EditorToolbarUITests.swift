@@ -42,6 +42,21 @@ final class EditorToolbarUITests: XCTestCase {
         return pen
     }
 
+    /// What the toolbar is actually showing, for a failure message. A count and
+    /// a window size distinguish "the row was too narrow" from "the device
+    /// never turned", which otherwise look identical from a failed lookup.
+    private func describeRow(_ app: XCUIApplication) -> String {
+        let favourites = app.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "toolbar.favorite."))
+            .count
+        let colours = app.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "toolbar.color."))
+            .count
+        let size = app.windows.firstMatch.frame.size
+        return "window \(Int(size.width))x\(Int(size.height)), "
+            + "favourites on the row: \(favourites), colours: \(colours)"
+    }
+
     private func attachScreenshot(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -86,18 +101,21 @@ final class EditorToolbarUITests: XCTestCase {
     func testSwitchingBetweenTwoFavouritesIsOneTapEach() {
         let app = launch()
         _ = toolbar(in: app)
-        // Five favourites are the toolbar's widest tier, and the row only gets
-        // that wide in landscape: in portrait even a 13-inch iPad leaves the
-        // toolbar under a thousand points once the page counter is subtracted,
-        // and the row shows three. The fifth shipped favourite is the first
-        // highlighter, which is what makes this a tool change and not just a
-        // colour change.
-        XCUIDevice.shared.orientation = .landscapeLeft
-
+        // The first two favourites, which is what every tier shows. The editor
+        // is the detail pane of a NavigationSplitView, so with the library
+        // sidebar showing it never gets the screen's width: on a 13-inch iPad
+        // the row is about 840 points in either orientation, the toolbar's
+        // medium tier, and the widest tier needs the sidebar hidden. Asking for
+        // the fifth favourite here was asking for a row no default layout has.
         let pen = app.buttons["toolbar.favorite.0"]
-        let highlighter = app.buttons["toolbar.favorite.4"]
-        XCTAssertTrue(highlighter.waitForExistence(timeout: 10),
-                      "five favourites have to fit on a landscape iPad")
+        let highlighter = app.buttons["toolbar.favorite.1"]
+        let appeared = highlighter.waitForExistence(timeout: 10)
+        // Attached before the assertion, not after: on a failure the screenshot
+        // is the only thing that says how wide the row really was, and an
+        // assertion that fires first would lose it.
+        attachScreenshot(app, "editor-favourites-row")
+        XCTAssertTrue(appeared,
+                      "a pen and a highlighter have to be on the row together — \(describeRow(app))")
         XCTAssertTrue(pen.exists)
 
         highlighter.tap()

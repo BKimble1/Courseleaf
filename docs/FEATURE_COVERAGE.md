@@ -254,6 +254,13 @@ the keyboard, so arrows move the cursor and ⌘Z undoes typing.
   actor work on scroll, and that is an argument, not a measurement. The three
   workloads to measure are named in `docs/VALIDATION.md`: a dense drawing page,
   an image-heavy notebook, and the 300-page PDF fixture.
+- **The widest toolbar needs the sidebar hidden.** The editor is the detail
+  pane of a `NavigationSplitView`, so the writing row gets roughly 840 points on
+  a 13-inch iPad in either orientation while the library sidebar is showing —
+  the medium tier, three favourites and four colours. Hiding the sidebar gives
+  the full row (five favourites, six colours). The shipped favourites are
+  ordered for the narrow case, pen and highlighter first, rather than assuming
+  a width the default layout never has.
 - **The three-finger swipe steps once per gesture.** ⌘Z, the toolbar button
   and the Edit menu's Undo call into the document's history directly and step
   it as far back as it goes. The three-finger swipe and shake read the

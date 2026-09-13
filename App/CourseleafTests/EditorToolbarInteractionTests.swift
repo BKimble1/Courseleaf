@@ -37,6 +37,20 @@ final class EditorToolbarInteractionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(tier.colorCount, 3)
     }
 
+    /// The tap the toolbar exists to save is pen → highlighter. It is only
+    /// saved if both are on the row at the width the student actually has, and
+    /// with the library sidebar showing that is the medium tier on every iPad —
+    /// the editor is a NavigationSplitView detail pane, not the whole screen.
+    func testAPenAndAHighlighterAreBothOnTheRowAtEveryTier() {
+        for tier in [EditorToolbar.Tier.compact, .medium, .regular] {
+            let shown = ToolFavorite.shipped.prefix(tier.favoriteCount)
+            XCTAssertTrue(shown.contains { $0.kind == .pen },
+                          "\(tier): a pen has to be one tap away")
+            XCTAssertTrue(shown.contains { $0.kind == .highlighter },
+                          "\(tier): so does a highlighter — going between them is what a favourite is for")
+        }
+    }
+
     func testEveryTierOffersThreeWidthsAndSomeColours() {
         for tier in [EditorToolbar.Tier.compact, .medium, .regular] {
             XCTAssertGreaterThanOrEqual(tier.colorCount, 3, "\(tier)")

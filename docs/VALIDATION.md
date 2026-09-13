@@ -205,7 +205,7 @@ tests pass" is only meaningful alongside what the tests caught.
    on anything. `reviewQueue` now takes `includeReviewed:` and both the catalog
    and fallback paths honour it; the view model asks for everything and filters.
 
-The first simulator run that compiled every new target found four more.
+The first simulator runs that compiled every new target found five more.
 
 4. **A second search hit left the first highlight on the page.** Navigating to
    another result cancelled the task that was going to clear the previous
@@ -227,6 +227,22 @@ The first simulator run that compiled every new target found four more.
    the assertions ran against a blank page rather than a failed load. The fixture
    now uses bytes PencilKit refuses, and the test asserts that it refuses them
    before relying on it.
+8. **The shipped highlighter favourite was never on the row.** The toolbar shows
+   two favourites at its narrowest tier and three at its medium one, and the
+   editor is a `NavigationSplitView` detail pane — so with the library sidebar
+   showing it is about 840 points wide on a 13-inch iPad in *either* orientation,
+   never the widest tier. The shipped order put the highlighter fifth, behind
+   three more pens, so the one tap favourites exist to save — pen to highlighter
+   — was not available in any default layout, on any iPad, while the release
+   notes promised it. The pen and the highlighter are now first and second.
+   `EditorToolbarInteractionTests.testAPenAndAHighlighterAreBothOnTheRowAtEveryTier`
+   asserts it for every tier, and `EditorToolbarUITests.testSwitchingBetweenTwoFavouritesIsOneTapEach`
+   taps them in the running app.
+
+   Worth naming plainly: this one was found by a UI test failing for what looked
+   like its own reason — it asked for the fifth favourite and did not get it —
+   and the first two attempts to fix it treated the test as wrong about the
+   device. The test was wrong about the *app*, and so was the feature.
 
 ## Unresolved failures
 

@@ -258,8 +258,10 @@ final class NotebookEditorViewController: UIViewController {
             scrollView.chromeInsetTop = topInset
             restore(anchor: anchor)
         }
-        editorToolbar.availableWidth = editorToolbar.bounds.width > 0 ? editorToolbar.bounds.width
-            : view.bounds.width - 140
+        // The toolbar measures itself in its own `layoutSubviews`. Setting its
+        // width from here read `editorToolbar.bounds` before the toolbar had
+        // been given a frame in this pass — stale on a rotation, and on the
+        // first pass a fabricated `view.bounds.width - 140`.
 
         if !hasPerformedInitialLayout {
             hasPerformedInitialLayout = true

@@ -213,12 +213,21 @@ struct ToolFavorite: Codable, Hashable, Sendable, Identifiable {
 
     /// The original set Courseleaf ships with. Deliberately the configurations a
     /// student reaches for in a lecture, not a demonstration of every colour.
+    ///
+    /// The order is the point, not a preference. The toolbar shows only the
+    /// first few — two at its narrowest, three at the medium width the editor
+    /// actually gets on every iPad while the library sidebar is showing, since
+    /// it is a `NavigationSplitView` detail pane and not the whole screen. So
+    /// the pen and the highlighter come first and second: going between them
+    /// in one tap is the thing a favourite is for, and it has to survive the
+    /// narrowest row, not just the widest. The highlighter used to be fifth,
+    /// behind three more pens, where no default layout ever showed it.
     static let shipped: [ToolFavorite] = [
         ToolFavorite(kind: .pen, width: 1, color: .black),
+        ToolFavorite(kind: .highlighter, width: 16, color: RGBAColor(hex: "#FFE600")!),
         ToolFavorite(kind: .pen, width: 2, color: .black),
         ToolFavorite(kind: .pen, width: 2, color: RGBAColor(hex: "#D0312D")!),
         ToolFavorite(kind: .pen, width: 2, color: RGBAColor(hex: "#1C4FD8")!),
-        ToolFavorite(kind: .highlighter, width: 16, color: RGBAColor(hex: "#FFE600")!),
         ToolFavorite(kind: .highlighter, width: 16, color: RGBAColor(hex: "#7CF57A")!),
     ]
 }
