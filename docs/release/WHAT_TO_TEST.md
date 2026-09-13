@@ -25,8 +25,16 @@ New, both optional:
   default. A deliberate diagonal stays diagonal.
 
 Search results and review items now take you to the part of the page you asked
-for, not just the page. Review shows the actual work, and revealing an answer
-now changes the picture instead of doing something you couldn't see.
+for, not just the page — and the highlight goes away when you move to the next
+result instead of being left behind on the old one. Review shows the actual
+work, and revealing an answer now changes the picture instead of doing
+something you couldn't see.
+
+"Open in Courseleaf" works. The app has been offering itself in Files, Mail and
+the share sheet since the first build and then doing nothing when you tapped it.
+A PDF, an image or a .courseleaf archive opened that way — or dropped onto the
+library — now goes through the same import you get from the + button, asks the
+same question about where to put it, and leaves the original file alone.
 
 Known and unfinished:
 • Nothing in this build has been tested on a real iPad or Apple Pencil. Pencil

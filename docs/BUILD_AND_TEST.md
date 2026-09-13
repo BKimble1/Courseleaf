@@ -55,7 +55,7 @@ iPad app (macOS, Xcode 16 or newer, XcodeGen 2.40+):
 
 ```bash
 brew install xcodegen
-Scripts/build-ios.sh           # xcodegen generate; build; run CourseleafTests on the first available iPad simulator
+Scripts/build-ios.sh           # xcodegen generate; build; run CourseleafTests and CourseleafUITests on the largest available iPad simulator (override with DESTINATION=...)
 Scripts/check-test-results.sh Build/CourseleafTests.xcresult
 Scripts/archive-ios.sh         # xcodebuild archive with signing disabled (unsigned .xcarchive for inspection)
 ```

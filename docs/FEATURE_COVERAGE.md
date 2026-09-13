@@ -254,6 +254,15 @@ the keyboard, so arrows move the cursor and ⌘Z undoes typing.
   actor work on scroll, and that is an argument, not a measurement. The three
   workloads to measure are named in `docs/VALIDATION.md`: a dense drawing page,
   an image-heavy notebook, and the 300-page PDF fixture.
+- **The three-finger swipe steps once per gesture.** ⌘Z, the toolbar button
+  and the Edit menu's Undo call into the document's history directly and step
+  it as far back as it goes. The three-finger swipe and shake read the
+  responder chain's own `UndoManager` instead, which the editor arms with a
+  single bridging action; `NSUndoManager` cannot hold a fresh undo
+  registration and a redo stack at the same time, so after a swipe-undo the
+  swipe offers redo but not a second undo until the next edit. Nothing is
+  lost — the same history is one ⌘Z or one toolbar tap away — and the gesture
+  itself is device-only and unverified either way.
 - Diagnostics: there is no in-app log or report-a-problem path (P2).
 
 **Evidence.** `EditorToolbarInteractionTests` (labels, traits, target sizes),

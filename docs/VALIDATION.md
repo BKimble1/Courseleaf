@@ -186,7 +186,7 @@ found in its own harness; all three are recorded here.
 
 ## Defects the end-to-end tests found
 
-Driving the real screens rather than the engine underneath turned up three
+Driving the real screens rather than the engine underneath turned up seven
 things the module tests could not see. They are recorded here because "the
 tests pass" is only meaningful alongside what the tests caught.
 
@@ -204,6 +204,29 @@ tests pass" is only meaningful alongside what the tests caught.
    so the queue's own "show reviewed" toggle and `reopen` action could never act
    on anything. `reviewQueue` now takes `includeReviewed:` and both the catalog
    and fallback paths honour it; the view model asks for everything and filters.
+
+The first simulator run that compiled every new target found four more.
+
+4. **A second search hit left the first highlight on the page.** Navigating to
+   another result cancelled the task that was going to clear the previous
+   highlight — which is the task that clears it — so the old yellow band stayed
+   until the page was rebuilt. The highlighted page is now tracked and cleared
+   explicitly. `DeepLinkAndReviewTests.testTheHighlightIsClearedAndDoesNotFollowTheStudentToAnotherPage`.
+5. **Undo through the responder chain offered no redo.** The bridge refused to
+   register while the manager had a group open, and a manager running an undo
+   always does — so the registration that builds the redo stack never happened.
+   The undoing and redoing cases are handled before that guard now.
+   `EditorReliabilityTests.testTheResponderChainManagerStepsTheDocumentsHistory`.
+6. **A stored preferences blob with no fields reset the toolbar.** Migration
+   seeded favourites from the *default* presets whenever the `favorites` key was
+   absent, rebuilding the shipped set under new identifiers and pushing two
+   favourites off the end. It now seeds only from presets that were really
+   stored. `EditorToolStateMigrationTests.testAValueWithNoFieldsAtAllDecodesToTheDefaults`.
+7. **A test was not testing what it said.** The unreadable-ink case fed PencilKit
+   a short ASCII string, which PencilKit accepts, returning an empty drawing — so
+   the assertions ran against a blank page rather than a failed load. The fixture
+   now uses bytes PencilKit refuses, and the test asserts that it refuses them
+   before relying on it.
 
 ## Unresolved failures
 
