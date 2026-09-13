@@ -355,11 +355,23 @@ final class EditorReliabilityTests: XCTestCase {
         let (documentID, session, pageID) = try await newNotebook(environment)
 
         // An ink layer pointing at bytes that are not a PKDrawing.
-        let broken = PendingAsset.make(data: Data("this is not a drawing".utf8), mediaType: .inkDrawing, now: Date())
+        let broken = PendingAsset.make(data: Data([0x00, 0x01, 0x02]), mediaType: .inkDrawing, now: Date())
         session.addAsset(broken)
         let layerID = try XCTUnwrap(session.editor.page(pageID)).inkLayers[0].id
         try session.apply(.replaceInk(pageID, layerID, dataAssetID: broken.asset.id))
         try await session.flush()
+
+        // Stated as a precondition rather than assumed. PencilKit decides what
+        // it will refuse, and it is more forgiving than it looks: a short ASCII
+        // string comes back as an empty drawing, which would make the rest of
+        // this test assert that a page with no ink behaves like a page with no
+        // ink. If a future PencilKit accepts these bytes too, this fails here
+        // and names the reason instead of passing for the wrong one.
+        let probe = PageContentLoader(assets: SessionAssetProvider(session: session))
+        guard case .unreadable = await probe.loadDrawing(for: broken.asset.id) else {
+            XCTFail("the fixture is supposed to be bytes PencilKit refuses")
+            return
+        }
 
         let controller = makeController(session: session, pageID: pageID)
         let canvas = try XCTUnwrap(controller.canvas(for: pageID))

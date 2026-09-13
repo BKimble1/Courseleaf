@@ -7,17 +7,35 @@ command -v xcodegen >/dev/null || { echo "xcodegen not found: brew install xcode
 xcodebuild -version
 xcodegen generate --spec project.yml
 if [ -z "${DESTINATION:-}" ]; then
-  UDID=$(xcrun simctl list devices available -j | python3 -c '
-import json,sys
+  # Deterministic, and the largest iPad available. "Whichever iPad sorts last"
+  # used to decide this, which meant an iPad mini could run the UI tests: a
+  # different screen width is a different toolbar tier and different
+  # screenshots, so the same commit passed or failed depending on what Xcode
+  # happened to install.
+  SIM=$(xcrun simctl list devices available -j | python3 -c '
+import json,sys,re
 d=json.load(sys.stdin)["devices"]
+def rank(name):
+    # Bigger screens first; within a class, prefer the plain Pro name.
+    for i,pat in enumerate([r"iPad Pro.*\b13[- ]inch", r"iPad Pro.*\b12\.9[- ]inch",
+                            r"iPad Pro.*\b11[- ]inch", r"iPad Air.*\b13[- ]inch",
+                            r"iPad Air", r"^iPad \(", r"iPad"]):
+        if re.search(pat, name): return i
+    return 99
+def runtime_key(r):
+    m = re.search(r"iOS-(\d+)-(\d+)", r)
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
 cands=[]
 for runtime,devs in d.items():
     if "iOS" not in runtime: continue
     for dev in devs:
-        if "iPad" in dev["name"] and dev.get("isAvailable",False): cands.append((runtime,dev))
-cands.sort(key=lambda x:(x[0],x[1]["name"]),reverse=True)
-print(cands[0][1]["udid"] if cands else "")')
+        if "iPad" in dev["name"] and dev.get("isAvailable",False):
+            cands.append((rank(dev["name"]), [-x for x in runtime_key(runtime)], dev["name"], dev["udid"]))
+cands.sort(key=lambda c:(c[0], c[1], c[2]))
+print("%s\t%s" % (cands[0][3], cands[0][2]) if cands else "")')
+  UDID=${SIM%%$'\t'*}
   [ -n "$UDID" ] || { echo "no available iPad simulator"; xcrun simctl list devices available; exit 3; }
+  echo "Simulator: ${SIM#*$'\t'}"
   DESTINATION="platform=iOS Simulator,id=$UDID"
 fi
 echo "Destination: $DESTINATION"

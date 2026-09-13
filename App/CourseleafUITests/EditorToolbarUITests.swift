@@ -13,6 +13,14 @@ final class EditorToolbarUITests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        // The simulator keeps its orientation between tests, so a test that
+        // rotates would otherwise decide the width every test after it sees.
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    override func tearDown() {
+        XCUIDevice.shared.orientation = .portrait
+        super.tearDown()
     }
 
     private func launch(arguments: [String] = []) -> XCUIApplication {
@@ -78,13 +86,19 @@ final class EditorToolbarUITests: XCTestCase {
     func testSwitchingBetweenTwoFavouritesIsOneTapEach() {
         let app = launch()
         _ = toolbar(in: app)
+        // Five favourites are the toolbar's widest tier, and the row only gets
+        // that wide in landscape: in portrait even a 13-inch iPad leaves the
+        // toolbar under a thousand points once the page counter is subtracted,
+        // and the row shows three. The fifth shipped favourite is the first
+        // highlighter, which is what makes this a tool change and not just a
+        // colour change.
+        XCUIDevice.shared.orientation = .landscapeLeft
 
-        // The shipped set starts with pens and ends with highlighters, so the
-        // first and the last are the two a student flips between.
         let pen = app.buttons["toolbar.favorite.0"]
         let highlighter = app.buttons["toolbar.favorite.4"]
+        XCTAssertTrue(highlighter.waitForExistence(timeout: 10),
+                      "five favourites have to fit on a landscape iPad")
         XCTAssertTrue(pen.exists)
-        XCTAssertTrue(highlighter.exists, "at a full-screen width five favourites fit")
 
         highlighter.tap()
         XCTAssertTrue(app.buttons["toolbar.tool.highlighter"].isSelected)

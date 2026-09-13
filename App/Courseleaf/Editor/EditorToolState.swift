@@ -301,7 +301,8 @@ struct EditorToolState: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         var value = EditorToolState()
         value.tool = try container.decodeIfPresent(EditorTool.self, forKey: .tool) ?? value.tool
-        value.inkPresets = try container.decodeIfPresent([InkToolKind: InkToolPreset].self, forKey: .inkPresets) ?? value.inkPresets
+        let storedPresets = try container.decodeIfPresent([InkToolKind: InkToolPreset].self, forKey: .inkPresets)
+        value.inkPresets = storedPresets ?? value.inkPresets
         value.eraserMode = try container.decodeIfPresent(EraserMode.self, forKey: .eraserMode) ?? value.eraserMode
         value.eraserWidth = try container.decodeIfPresent(Double.self, forKey: .eraserWidth) ?? value.eraserWidth
         value.lassoMode = try container.decodeIfPresent(LassoMode.self, forKey: .lassoMode) ?? value.lassoMode
@@ -318,13 +319,17 @@ struct EditorToolState: Codable, Hashable, Sendable {
         let storedVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         if let stored = try container.decodeIfPresent([ToolFavorite].self, forKey: .favorites) {
             value.favorites = stored
-        } else {
+        } else if let storedPresets {
             // Version 1 had one configuration per ink type and no favourites.
             // Seed the list from what the student had actually set, so their
             // pen, pencil and highlighter are the first three favourites
             // instead of being replaced by ours.
-            value.favorites = EditorToolState.seededFavorites(from: value.inkPresets)
+            value.favorites = EditorToolState.seededFavorites(from: storedPresets)
         }
+        // Neither key: there is no earlier choice to carry forward, so the
+        // shipped set `value` already holds is the answer. Seeding from the
+        // defaults here would rebuild the same configurations under new
+        // identifiers and push two shipped favourites off the end for nothing.
         value.schemaVersion = max(storedVersion, 1)
         self = value
         self.schemaVersion = EditorToolState.currentSchemaVersion

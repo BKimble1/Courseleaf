@@ -132,9 +132,14 @@ final class NotebookEditorViewController: UIViewController {
     private var pendingChangeSet = ChangeSet.empty
     private var changeFlushScheduled = false
     private var undoClearScheduled = false
+    private var undoBridgeRefreshScheduled = false
     private var shapeCandidate: ShapeCandidate?
     private var lastViewedRecordTask: Task<Void, Never>?
     private var highlightClearTask: Task<Void, Never>?
+    /// The page whose overlay currently carries a search highlight. Cancelling
+    /// the clear task is not enough to put it away: the task that would have
+    /// cleared it is the one being cancelled.
+    private var highlightedPageID: PageID?
     private weak var navigatorViewController: PageNavigatorViewController?
     private var previousChangeHandler: ((ChangeSet) -> Void)?
     private var previousSaveStatusHandler: ((SaveStatus) -> Void)?
@@ -846,23 +851,46 @@ final class NotebookEditorViewController: UIViewController {
     /// toolbar and ⌘Z do. It stores no edit of its own: at most one action,
     /// which asks the document to step and is re-armed afterwards.
     private func refreshSystemUndoBridge() {
-        guard editorUndoManager.groupingLevel == 0 else { return }
+        // The undoing and redoing cases come first, and deliberately do not
+        // check `groupingLevel`. A manager that is running an undo has that
+        // undo's group open, and the registration that builds the redo stack
+        // has to go *into* it. Guarding on the grouping level here is why the
+        // Edit menu could undo a stroke and then find nothing to redo.
         if editorUndoManager.isUndoing {
             if session.canRedo {
                 editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.redo() }
+                editorUndoManager.setActionName(session.editor.redoActionName ?? "Change")
             }
             return
         }
         if editorUndoManager.isRedoing {
             if session.canUndo {
                 editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.undo() }
+                editorUndoManager.setActionName(session.editor.undoActionName ?? "Change")
             }
+            return
+        }
+        guard editorUndoManager.groupingLevel == 0 else {
+            // Something else — a text view being typed into — has an event
+            // group open. Ours would nest inside it instead of reaching the
+            // stack, so try again once that group has closed.
+            scheduleSystemUndoBridgeRefresh()
             return
         }
         editorUndoManager.removeAllActions(withTarget: historyBridge)
         guard session.canUndo else { return }
         editorUndoManager.registerUndo(withTarget: historyBridge) { bridge in bridge.undo() }
         editorUndoManager.setActionName(session.editor.undoActionName ?? "Change")
+    }
+
+    private func scheduleSystemUndoBridgeRefresh() {
+        guard !undoBridgeRefreshScheduled else { return }
+        undoBridgeRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.undoBridgeRefreshScheduled = false
+            self.refreshSystemUndoBridge()
+        }
     }
 
     // MARK: Standard edit actions
@@ -1017,7 +1045,7 @@ final class NotebookEditorViewController: UIViewController {
     /// Scrolls to `pageID` and flashes `region` (page space) on its overlay.
     func revealSearchHit(pageID: PageID, region: PageRect?) {
         goToPage(pageID, animated: true)
-        highlightClearTask?.cancel()
+        clearSearchHighlight()
         guard let region else { return }
         highlightClearTask = Task { [weak self] in
             // Wait for the page to become live before highlighting it.
@@ -1025,13 +1053,26 @@ final class NotebookEditorViewController: UIViewController {
                 guard !Task.isCancelled, let self else { return }
                 if let canvas = self.canvas(for: pageID) {
                     canvas.overlay.highlightRect = CGRect(region)
+                    self.highlightedPageID = pageID
                     break
                 }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled, let self else { return }
-            self.canvas(for: pageID)?.overlay.highlightRect = nil
+            self.clearSearchHighlight()
+        }
+    }
+
+    /// Puts away whatever highlight is on screen and stops the task that was
+    /// going to. Both halves matter: a second search cancels the first clear,
+    /// so without this the first page keeps its highlight for good.
+    private func clearSearchHighlight() {
+        highlightClearTask?.cancel()
+        highlightClearTask = nil
+        if let previous = highlightedPageID {
+            canvas(for: previous)?.overlay.highlightRect = nil
+            highlightedPageID = nil
         }
     }
 
