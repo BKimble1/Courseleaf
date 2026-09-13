@@ -13,10 +13,14 @@ or when context is nearly exhausted; keep it short and exact.
   `com.idlery.courseleaf.archive` (`.courseleaf`), team `7GNFT94A9L`, App Store
   Connect Apple ID `6811381700`, SKU `courseleaf-ios-001`. Version 1.0.0; the
   build number is chosen from App Store Connect at release time.
-- **TestFlight has shipped.** Build 1.0.0 (1) reached VALID and was assigned to
-  the internal group **Courseleaf Testing Group**. Earlier handoff notes in this
-  file said otherwise and were stale; Apple's state and the installed build are
-  the authority, not this document.
+- **TestFlight has shipped.** The current build is **1.0.0 (2)**, from commit
+  `45489d7`: it reached `VALID` on 2026-09-13 (App Store Connect build id
+  `2ea85ecb-94c5-4b5e-95a1-68477d57ba44`,
+  [release run 34728597036](https://github.com/BKimble1/Courseleaf/actions/runs/34728597036))
+  and App Store Connect lists it in the internal group **Courseleaf Testing
+  Group**. 1.0.0 (1) was the previous build. Earlier handoff notes in this file
+  claimed TestFlight had not shipped at all and were stale; Apple's state and
+  the installed build are the authority, not this document.
 - **Secrets are in place:** `ASC_KEY_ID`, `ASC_ISSUER_ID`,
   `ASC_PRIVATE_KEY_BASE64`. The distribution identity is cached under
   `courseleaf-signing-identity-v1` and is **reused, never re-minted** — Apple
@@ -30,7 +34,14 @@ not. In short: stale ink commits, undo boundaries and unreadable-ink handling
 were fixed; the toolbar moved to a persistent top row with one-tap colours,
 widths and favourites; scribble-to-erase and draw-and-hold shipped behind
 settings; search and review deep links now reach a region; review renders the
-work. A UI-test target exists and attaches screenshots.
+work; "Open in Courseleaf" from Files, Mail and the share sheet finally does
+something. A UI-test target exists and attaches screenshots.
+
+**Start here next time.** The device checklist in `docs/DEVICE_CHECKLIST.md` is
+the open work: nothing in 1.0.0 (2) has touched an Apple Pencil, so Pencil feel,
+latency, palm rejection, the hold in draw-and-hold and whether scribble-erase
+misfires in the hand are all unknown. Gates A02, A03, A06, A16, A17 and A19 stay
+open until someone runs it on the iPad.
 
 ## Standing constraints
 

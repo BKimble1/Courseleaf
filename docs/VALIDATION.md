@@ -246,8 +246,17 @@ The first simulator runs that compiled every new target found five more.
 
 ## Unresolved failures
 
-No test is failing. Linux passes 222/222 in the session and in CI. The iPad
-simulator ran 69 tests with 0 failures at `9d683f4` [run 34712297941](https://github.com/BKimble1/Courseleaf/actions/runs/34712297941).
+No test is failing. At `45489d7`, the commit that was released:
+
+| Job | Result | Run |
+|---|---|---|
+| `core-linux` (`swift test --parallel`) | 256 tests, 0 failures | [run 34728156986](https://github.com/BKimble1/Courseleaf/actions/runs/34728156986) |
+| `app-ios-simulator` (`CourseleafTests` + `CourseleafUITests`) | 129 tests, 0 failures | [run 34728156986](https://github.com/BKimble1/Courseleaf/actions/runs/34728156986) |
+| TestFlight release (same suite, re-run before archiving) | 129 tests, 0 failures | [run 34728597036](https://github.com/BKimble1/Courseleaf/actions/runs/34728597036) |
+
+The simulator was an iPad Pro 13-inch (M4) under Xcode 26.3 / iOS 26.2. Which
+iPad it is now appears in the log, because it used to be whichever one sorted
+last and that silently decided the toolbar's layout tier.
 
 Device rows remain open: no physical iPad or Apple Pencil exists in this
 environment, so A02, A03, A06, A16, A17 and A19 have no evidence and must not be
